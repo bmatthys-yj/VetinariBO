@@ -1,0 +1,9 @@
+.git/
+.pnpm-store/
+coverage/
+dist/
+node_modules/
+pnpm-lock.yaml
+*.db
+*.example
+*.png
