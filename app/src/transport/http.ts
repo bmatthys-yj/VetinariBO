@@ -45,3 +45,8 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   if (!response.ok) throw await toApiError(url, response);
   return (await response.json()) as T;
 }
+
+export async function deleteJson(url: string): Promise<void> {
+  const response = await fetch(url, { method: "DELETE", headers: { accept: "application/json" } });
+  if (!response.ok) throw await toApiError(url, response);
+}

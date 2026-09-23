@@ -10,6 +10,19 @@ const workshopDateSchema = z
   );
 
 /**
+ * A text field that is absent rather than empty.
+ *
+ * HTML forms and JSON clients both send `""` for a skipped field, which would
+ * otherwise be stored as an empty string instead of `NULL`.
+ */
+export function optionalText(max: number) {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().trim().min(1).max(max).optional(),
+  );
+}
+
+/**
  * The client-supplied shape of a workshop.
  *
  * The location is kept as two plain fields rather than its own table: the
@@ -25,8 +38,14 @@ export const workshopInputSchema = z.object({
   maxApplicants: z.coerce.number().int().positive("Expected at least one applicant").max(10_000),
   /** Topic the workshop covers. */
   subject: z.string().trim().min(1, "Subject is required").max(200),
-  /** Public page hosting the workshop. */
-  url: z.url("Expected a valid URL").max(2048),
+  /**
+   * Optional external page for the workshop, such as a marketing or landing
+   * page. The enrollment form we host ourselves is addressed by `slug` instead.
+   */
+  url: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.url("Expected a valid URL").max(2048).optional(),
+  ),
   /** Human-readable name of the venue. */
   locationName: z.string().trim().min(1, "Location name is required").max(200),
   /** Street address of the venue. */
@@ -39,6 +58,20 @@ export type WorkshopInput = z.infer<typeof workshopInputSchema>;
 /** A persisted workshop. */
 export interface Workshop extends WorkshopInput {
   readonly id: string;
+  /** Unguessable path segment the hosted enrollment form is served under. */
+  readonly slug: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/**
+ * A workshop as the backoffice API returns it.
+ *
+ * `publicUrl` is derived from configuration at the edge rather than stored, so
+ * changing the public hostname is a config edit and not a data migration.
+ */
+export interface WorkshopSummary extends Workshop {
+  readonly publicUrl: string;
+  readonly enrollmentCount: number;
+  readonly seatsRemaining: number;
 }

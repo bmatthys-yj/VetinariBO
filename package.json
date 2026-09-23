@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@12.4.2",
   "scripts": {
-    "build": "pnpm run build:server && pnpm run build:app",
+    "build": "pnpm run build:server && pnpm run build:app && pnpm run build:public-css",
     "build:app": "vite build app",
     "build:server": "tsc -p tsconfig.json",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
@@ -20,7 +20,12 @@
     "start": "node dist/server/main.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p app/tsconfig.json --noEmit",
-    "db:add-workshop": "pnpm run build:server && node dist/scripts/addWorkshop.js"
+    "db:add-workshop": "pnpm run build:server && node dist/scripts/addWorkshop.js",
+    "build:public-css": "tailwindcss -i public-web/styles.css -o dist/public/assets/styles.css --minify",
+    "litellm:up": "docker compose --env-file .env -f infra/litellm/docker-compose.yml up -d",
+    "litellm:down": "docker compose --env-file .env -f infra/litellm/docker-compose.yml down",
+    "litellm:logs": "docker compose --env-file .env -f infra/litellm/docker-compose.yml logs -f litellm",
+    "litellm:health": "docker compose --env-file .env -f infra/litellm/docker-compose.yml ps && docker compose --env-file .env -f infra/litellm/docker-compose.yml exec litellm python3 -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5).read().decode())\""
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -43,6 +48,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/node": "^22.13.10",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

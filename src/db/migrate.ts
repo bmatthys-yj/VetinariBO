@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import { Migrator } from "kysely";
 import { createDatabase, resolveDatabaseFile, type BackofficeDatabase } from "./index.js";
 import { migrationProvider } from "./migrations.js";
+import { loadEnvFile } from "../env.js";
 
 /** Apply every pending migration, reporting each result to the console. */
 export async function migrateToLatest(db: BackofficeDatabase): Promise<void> {
@@ -20,6 +21,7 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
+  loadEnvFile();
   const file = resolveDatabaseFile();
   const db = createDatabase(file);
   try {

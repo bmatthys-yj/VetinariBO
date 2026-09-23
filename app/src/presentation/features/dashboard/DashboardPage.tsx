@@ -1,9 +1,10 @@
-import { CalendarDays, CalendarPlus, LayoutDashboard, Users } from "lucide-react";
+import { CalendarDays, CalendarPlus, LayoutDashboard, UserCheck, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useWorkshops } from "../../../application/hooks/useWorkshops";
 import {
   formatWorkshopDate,
   nextWorkshop,
+  totalEnrollments,
   totalSeats,
   upcomingWorkshops,
 } from "../../../domain/workshop";
@@ -37,7 +38,7 @@ export function DashboardPage() {
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Backoffice statistics"
       >
         <MetricCard
@@ -57,6 +58,12 @@ export function DashboardPage() {
           value={totalSeats(upcoming)}
           detail="Across upcoming workshops"
           icon={<Users className="size-4" />}
+        />
+        <MetricCard
+          label="Enrollments"
+          value={totalEnrollments(workshops)}
+          detail="Through the hosted forms"
+          icon={<UserCheck className="size-4" />}
         />
       </section>
 

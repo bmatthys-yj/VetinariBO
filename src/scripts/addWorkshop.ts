@@ -3,6 +3,9 @@ import { workshopInputSchema } from "../contracts/workshop.js";
 import { createDatabase, resolveDatabaseFile } from "../db/index.js";
 import { migrateToLatest } from "../db/migrate.js";
 import { createWorkshop } from "../db/workshops.js";
+import { loadEnvFile } from "../env.js";
+
+loadEnvFile();
 
 const USAGE = `Add one workshop to the local backoffice database.
 

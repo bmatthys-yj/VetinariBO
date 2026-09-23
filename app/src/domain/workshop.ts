@@ -35,3 +35,8 @@ export function totalSeats(workshops: Workshop[]): number {
 export function nextWorkshop(workshops: Workshop[]): Workshop | null {
   return upcomingWorkshops(workshops)[0] ?? null;
 }
+
+/** Enrollments across the given workshops. */
+export function totalEnrollments(workshops: Workshop[]): number {
+  return workshops.reduce((total, workshop) => total + workshop.enrollmentCount, 0);
+}
