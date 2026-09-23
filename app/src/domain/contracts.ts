@@ -39,3 +39,43 @@ export interface Enrollment {
   consentedAt: string;
   createdAt: string;
 }
+
+/** A built-in agent. Agents are defined in the server code, so this is read-only. */
+export interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  /** LiteLLM model deployment name, or `null` when none is configured. */
+  model: string | null;
+  /** Instructions sent as the system message on every run. */
+  systemPrompt: string;
+  tools: Array<{ name: string; description: string }>;
+  /** `false` while any of `missingConfig` is unset. */
+  ready: boolean;
+  /** Environment variables the agent still needs. */
+  missingConfig: string[];
+}
+
+/** A tool the agent called during a run, and why it failed if it did. */
+export interface AgentToolCall {
+  name: string;
+  arguments: unknown;
+  error?: string;
+}
+
+/** An agent's reply to one prompt. */
+export interface AgentRunResult {
+  agentId: string;
+  model: string;
+  output: string;
+  toolCalls: AgentToolCall[];
+}
+
+/** Whether the backoffice can reach the LiteLLM gateway, and what it serves. */
+export interface GatewayStatus {
+  configured: boolean;
+  reachable: boolean;
+  baseUrl: string;
+  models: string[];
+  error?: string;
+}

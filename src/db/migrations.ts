@@ -148,12 +148,45 @@ const createEnrollments: Migration = {
   },
 };
 
+const createAgents: Migration = {
+  async up(db) {
+    await db.schema
+      .createTable("agents")
+      .addColumn("id", "text", (column) => column.primaryKey())
+      .addColumn("name", "text", (column) => column.notNull())
+      .addColumn("description", "text")
+      .addColumn("model", "text", (column) => column.notNull())
+      .addColumn("system_prompt", "text", (column) => column.notNull())
+      .addColumn("created_at", "text", (column) => column.notNull())
+      .addColumn("updated_at", "text", (column) => column.notNull())
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("agents").execute();
+  },
+};
+
+/**
+ * Agents are defined in code now (see `src/agents`), so the table that held
+ * hand-added agents goes. `0005` stays as applied history.
+ */
+const dropAgents: Migration = {
+  async up(db) {
+    await db.schema.dropTable("agents").ifExists().execute();
+  },
+  async down(db) {
+    await createAgents.up(db);
+  },
+};
+
 /** Ordered migration set. Names sort lexicographically, so keep the numeric prefix. */
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_create_workshops": createWorkshops,
   "0002_add_workshop_slug": addWorkshopSlug,
   "0003_make_workshop_url_optional": makeWorkshopUrlOptional,
   "0004_create_enrollments": createEnrollments,
+  "0005_create_agents": createAgents,
+  "0006_drop_agents": dropAgents,
 };
 
 export const migrationProvider: MigrationProvider = {

@@ -50,8 +50,8 @@ pnpm install         # install dependencies
 pnpm check           # format:check, lint, typecheck, test
 pnpm build           # compile the server and the SPA
 pnpm start           # run the built server
-pnpm dev:server      # API on :3000
-pnpm dev             # Vite dev server on :5174
+pnpm dev:server      # API on :3100
+pnpm dev             # Vite dev server on :5175
 ```
 
 Run `pnpm check` before handing off a change.

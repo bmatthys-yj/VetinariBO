@@ -7,3 +7,4 @@ export {
   fetchWorkshop,
   fetchWorkshops,
 } from "./workshopsApi";
+export { fetchAgent, fetchAgents, fetchGatewayStatus, runAgent } from "./agentsApi";

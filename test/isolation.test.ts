@@ -48,6 +48,9 @@ describe("public app does not expose the backoffice", () => {
     "/workshops",
     "/api/workshops",
     "/api/workshops/anything",
+    "/agents",
+    "/api/agents",
+    "/api/gateway",
     "/index.html",
     "/assets/index.js",
   ];
@@ -94,7 +97,7 @@ describe("public app does not expose the backoffice", () => {
 
 describe("backoffice does not host the public form", () => {
   it("returns 404 for the enrollment page", async () => {
-    const app = createBackofficeApp(db, { publicBaseUrl: "http://localhost:3001" });
+    const app = createBackofficeApp(db, { publicBaseUrl: "http://localhost:3101" });
     const response = await app.request(`/w/${slug}`);
     // The SPA shell is a catch-all, so the assertion is that it is *not* the
     // enrollment form rather than a bare status code.

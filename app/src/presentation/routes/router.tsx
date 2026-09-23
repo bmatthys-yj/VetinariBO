@@ -5,6 +5,8 @@ import { AppShell } from "../app/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { WorkshopsPage } from "../features/workshops/WorkshopsPage";
 import { WorkshopDetailPage } from "../features/workshops/WorkshopDetailPage";
+import { AgentsPage } from "../features/agents/AgentsPage";
+import { AgentDetailPage } from "../features/agents/AgentDetailPage";
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -38,9 +40,28 @@ const workshopDetailRoute = createRoute({
   component: WorkshopDetailPage,
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents",
+});
+
+const agentsIndexRoute = createRoute({
+  getParentRoute: () => agentsRoute,
+  path: "/",
+  component: AgentsPage,
+});
+
+/** Agent detail: its instructions and a prompt box to run it. */
+const agentDetailRoute = createRoute({
+  getParentRoute: () => agentsRoute,
+  path: "$agentId",
+  component: AgentDetailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   workshopsRoute.addChildren([workshopsIndexRoute, workshopDetailRoute]),
+  agentsRoute.addChildren([agentsIndexRoute, agentDetailRoute]),
 ]);
 
 export function createAppRouter(context: RouterContext, history?: RouterHistory) {

@@ -1,10 +1,11 @@
-import { CalendarDays, LayoutDashboard } from "lucide-react";
+import { Bot, CalendarDays, LayoutDashboard } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ThemeSelector } from "../theme/ThemeSelector";
 
 const navigation = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/workshops", label: "Workshops", icon: CalendarDays },
+  { to: "/agents", label: "Agents", icon: Bot },
 ] as const;
 
 export function BackofficeSidebar() {

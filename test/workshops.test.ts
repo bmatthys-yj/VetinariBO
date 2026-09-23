@@ -17,7 +17,7 @@ const VALID_INPUT = {
   locationAddress: "Sluisstraat 79, 3000 Leuven",
 };
 
-const PUBLIC_BASE_URL = "http://localhost:3001";
+const PUBLIC_BASE_URL = "http://localhost:3101";
 
 let directory: string;
 let db: BackofficeDatabase;

@@ -1,0 +1,58 @@
+# Local LiteLLM gateway for the backoffice agents. Mirrors Vetinari's
+# infra/litellm setup, so one gateway can serve both if you already run it.
+name: vetinari-bo-litellm
+
+services:
+  db:
+    # LiteLLM's Admin UI needs Postgres for login sessions and key management.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: "${LITELLM_DB_PASSWORD:-local-dev-db-password}"
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  litellm:
+    # Pin the gateway image to a released version and digest for repeatable local runs.
+    image: docker.litellm.ai/berriai/litellm:v1.100.0@sha256:c8756e7b9a61fe45df2ccb5b781d388c3b2f3a21ef9e4956630caef20f9f03aa
+    restart: unless-stopped
+    ports:
+      # Loopback only, like the backoffice itself.
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    # Model deployments and virtual keys are managed in LiteLLM's dashboard.
+    # Keep provider credentials out of this repository and out of Compose.
+    command: ["--port", "4000"]
+    environment:
+      # This bootstrap credential protects the local admin UI and API. Create
+      # application virtual keys and model deployments from that UI.
+      LITELLM_MASTER_KEY: "${LITELLM_UI_MASTER_KEY:?Set LITELLM_UI_MASTER_KEY in .env}"
+      UI_USERNAME: "admin"
+      UI_PASSWORD: "${LITELLM_UI_MASTER_KEY:?Set LITELLM_UI_MASTER_KEY in .env}"
+      DATABASE_URL: "postgresql://litellm:${LITELLM_DB_PASSWORD:-local-dev-db-password}@db:5432/litellm"
+      STORE_MODEL_IN_DB: "True"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # /health/liveliness is LiteLLM's unauthenticated process-liveness endpoint.
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  # A named volume keeps the local dashboard/key data across `compose down`.
+  litellm-db-data:

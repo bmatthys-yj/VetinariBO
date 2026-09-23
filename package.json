@@ -21,7 +21,11 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p app/tsconfig.json --noEmit",
     "db:add-workshop": "pnpm run build:server && node dist/scripts/addWorkshop.js",
-    "build:public-css": "tailwindcss -i public-web/styles.css -o dist/public/assets/styles.css --minify"
+    "build:public-css": "tailwindcss -i public-web/styles.css -o dist/public/assets/styles.css --minify",
+    "litellm:up": "docker compose --env-file .env -f infra/litellm/docker-compose.yml up -d",
+    "litellm:down": "docker compose --env-file .env -f infra/litellm/docker-compose.yml down",
+    "litellm:logs": "docker compose --env-file .env -f infra/litellm/docker-compose.yml logs -f litellm",
+    "litellm:health": "docker compose --env-file .env -f infra/litellm/docker-compose.yml ps && docker compose --env-file .env -f infra/litellm/docker-compose.yml exec litellm python3 -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5).read().decode())\""
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
