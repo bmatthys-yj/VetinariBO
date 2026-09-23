@@ -23,9 +23,15 @@ function stripSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-/** Absolute path to the built SPA output (`dist/app`). */
-export function resolveAssetsDir(): string {
-  return stripSlash(fileURLToPath(new URL("../../app/", import.meta.url)));
+/**
+ * Absolute path to a built bundle under `dist/`.
+ *
+ * This module compiles to `dist/server/shared/spa/`, so `dist/` is three levels
+ * up. Both the backoffice SPA (`dist/app`) and the public form's stylesheet
+ * (`dist/public`) are resolved through here.
+ */
+export function resolveAssetsDir(bundle: string): string {
+  return stripSlash(fileURLToPath(new URL(`../../../${bundle}/`, import.meta.url)));
 }
 
 /** Whether the SPA has been built into `assetsDir`. */

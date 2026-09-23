@@ -5,12 +5,19 @@
 VetinariBO is the backoffice for the Vetinari platform: clients, leads, workshops,
 and repositories. It is a single TypeScript package, not a monorepo.
 
-- `src/` — Hono server, Kysely/SQLite database, shared zod contracts, CLI scripts.
-- `app/` — the React SPA, built by Vite into `dist/app` and served by the server.
-- `test/` — Vitest suites covering the repositories and HTTP routes.
+- `src/` — two Hono apps, Kysely/SQLite database, shared zod contracts, CLI scripts.
+- `app/` — the backoffice React SPA, built by Vite into `dist/app`.
+- `public-web/` — Tailwind entry for the server-rendered enrollment form.
+- `test/` — Vitest suites covering the repositories, HTTP routes, and the isolation boundary.
 
 Keep the dependency direction one-way: `app/` talks to the server over HTTP only.
 It must not import from `src/`, and the server must not import from `app/`.
+
+**The load-bearing rule of this repository:** `src/server/public/` must never
+import from `src/server/backoffice/`. The enrollment form is public; the
+backoffice is not. They are separate Hono apps on separate ports precisely so
+that no route can leak, and `test/isolation.test.ts` asserts it. If that test
+fails, the fix is the code, never the test.
 
 ## Working conventions
 
@@ -55,8 +62,17 @@ Run `pnpm check` before handing off a change.
   response carries field-level `issues` so the UI can render them inline.
 - Add schema changes as a new entry in `src/db/migrations.ts`; keep the numeric
   name prefix so migrations stay ordered. Never edit an applied migration.
-- The SPA router is a fall-through mounted last in `src/server/app.ts`; add API
-  routes before it.
+- The SPA router is a fall-through mounted last in
+  `src/server/backoffice/app.ts`; add API routes before it.
+- Anything the public app returns about a workshop must be an explicit projection
+  (see `toWorkshopView` in `src/server/public/http/enroll.tsx`), never a spread of
+  the row, so a column added later cannot leak onto a public page by default.
+- A workshop's enrollment form is live as soon as the row exists: the slug is
+  generated on insert and the page is rendered from the database per request.
+  There is no publish step to keep in sync, and adding one would be a behaviour
+  change worth discussing first.
+- The backoffice has no authentication yet; it is protected only by binding to
+  loopback. Do not expose it on a routable interface without adding auth.
 - `src/db/nodeSqliteDialect.ts` is a small Kysely dialect over Node's built-in
   `node:sqlite`. It avoids a native build step. If the database moves to
   PostgreSQL, replace the dialect rather than the query code.

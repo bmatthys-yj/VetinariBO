@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createDatabase, type BackofficeDatabase } from "../src/db/index.js";
 import { migrateToLatest } from "../src/db/migrate.js";
 import { createWorkshop, listWorkshops } from "../src/db/workshops.js";
-import { createBackofficeApp } from "../src/server/app.js";
+import { createBackofficeApp } from "../src/server/backoffice/app.js";
 
 const VALID_INPUT = {
   name: "Agentic AI Kickstart",
@@ -16,6 +16,8 @@ const VALID_INPUT = {
   locationName: "De Hoorn",
   locationAddress: "Sluisstraat 79, 3000 Leuven",
 };
+
+const PUBLIC_BASE_URL = "http://localhost:3001";
 
 let directory: string;
 let db: BackofficeDatabase;
@@ -40,9 +42,13 @@ describe("workshop repository", () => {
     const created = await createWorkshop(db, VALID_INPUT);
     expect(created).toMatchObject(VALID_INPUT);
     expect(created.id).toMatch(/^[0-9a-f-]{36}$/);
+    // The slug exists on insert, so the hosted form is live immediately.
+    expect(created.slug).toMatch(/^agentic-ai-kickstart-[a-z2-9]{6}$/);
 
     const [stored] = await listWorkshops(db);
-    expect(stored).toEqual(created);
+    // A list read adds the seat counters a bare insert does not carry.
+    expect(stored).toMatchObject(created);
+    expect(stored).toMatchObject({ enrollmentCount: 0, seatsRemaining: VALID_INPUT.maxApplicants });
   });
 
   it("orders workshops by date", async () => {
@@ -54,14 +60,14 @@ describe("workshop repository", () => {
 
 describe("workshops API", () => {
   it("lists an empty register", async () => {
-    const app = createBackofficeApp(db);
+    const app = createBackofficeApp(db, { publicBaseUrl: PUBLIC_BASE_URL });
     const response = await app.request("/api/workshops");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ workshops: [] });
   });
 
   it("creates a workshop and then lists it", async () => {
-    const app = createBackofficeApp(db);
+    const app = createBackofficeApp(db, { publicBaseUrl: PUBLIC_BASE_URL });
     const created = await app.request("/api/workshops", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -77,7 +83,7 @@ describe("workshops API", () => {
   });
 
   it("rejects an invalid workshop with field-level issues", async () => {
-    const app = createBackofficeApp(db);
+    const app = createBackofficeApp(db, { publicBaseUrl: PUBLIC_BASE_URL });
     const response = await app.request("/api/workshops", {
       method: "POST",
       headers: { "content-type": "application/json" },

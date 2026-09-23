@@ -1,13 +1,21 @@
-import { ArrowUpRight, MapPin, Users } from "lucide-react";
+import { MapPin, Users } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import type { Workshop } from "../../../domain/contracts";
 import { formatWorkshopDate } from "../../../domain/workshop";
 import { buttonVariants } from "../../shared/ui/Button";
+import { PublicFormLink } from "./PublicFormLink";
 
 export function WorkshopRow({ workshop }: { workshop: Workshop }) {
   return (
     <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="truncate font-medium">{workshop.name}</p>
+        <Link
+          to="/workshops/$workshopId"
+          params={{ workshopId: workshop.id }}
+          className="truncate font-medium underline-offset-4 hover:underline"
+        >
+          {workshop.name}
+        </Link>
         <p className="mt-0.5 truncate text-sm text-muted-foreground">{workshop.subject}</p>
         <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
@@ -24,19 +32,18 @@ export function WorkshopRow({ workshop }: { workshop: Workshop }) {
         <div>
           <p className="flex items-center justify-end gap-1.5 font-medium tabular-nums">
             <Users className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            {workshop.maxApplicants}
+            {workshop.enrollmentCount} / {workshop.maxApplicants}
           </p>
-          <p className="text-xs text-muted-foreground">max applicants</p>
+          <p className="text-xs text-muted-foreground">enrolled</p>
         </div>
-        <a
-          href={workshop.url}
-          target="_blank"
-          rel="noreferrer"
-          className={buttonVariants({ variant: "outline", className: "h-8 shrink-0 gap-1.5 px-3" })}
+        <PublicFormLink url={workshop.publicUrl} compact />
+        <Link
+          to="/workshops/$workshopId"
+          params={{ workshopId: workshop.id }}
+          className={buttonVariants({ variant: "outline", className: "h-8 shrink-0 px-3" })}
         >
-          <span>Open page</span>
-          <ArrowUpRight className="size-3.5" aria-hidden="true" />
-        </a>
+          Details
+        </Link>
       </div>
     </div>
   );

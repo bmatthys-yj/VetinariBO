@@ -12,7 +12,7 @@ lucide icons, and a Hono server — on top of a small local SQLite database.
 | -------- | ----------------------------------------------------------------- |
 | UI       | React 19, TanStack Router, TanStack Query, Tailwind CSS 4, lucide |
 | Build    | Vite 8, TypeScript 5 (strict, ESM, `NodeNext`)                    |
-| Server   | Hono 4 on `@hono/node-server`                                     |
+| Server   | Hono 4 on `@hono/node-server`, two apps on two ports              |
 | Database | SQLite through Node's built-in `node:sqlite`, queried with Kysely |
 
 The database differs from Vetinari on purpose: Vetinari runs PostgreSQL in Docker,
@@ -24,9 +24,16 @@ dialect swap rather than a rewrite.
 
 ```bash
 pnpm install
-pnpm build          # compile the server and the SPA
-pnpm start          # http://localhost:3000
+pnpm build          # compile the servers, the SPA, and the public stylesheet
+pnpm start
 ```
+
+Two servers come up:
+
+|                 | Address                 | For                                                      |
+| --------------- | ----------------------- | -------------------------------------------------------- |
+| Backoffice      | `http://127.0.0.1:3000` | You. Bound to loopback, so unreachable from the network. |
+| Enrollment form | `http://localhost:3001` | Attendees. The only surface meant to be exposed.         |
 
 `pnpm start` runs pending migrations before listening, so the first run creates
 `data/vetinari-bo.db` on its own.
@@ -50,11 +57,16 @@ pnpm check          # format:check, lint, typecheck, test
 
 Copy `.env.example` to `.env` to override the defaults.
 
-| Variable                    | Default                 | Purpose                            |
-| --------------------------- | ----------------------- | ---------------------------------- |
-| `VETINARI_BO_DATABASE_FILE` | `./data/vetinari-bo.db` | Path to the local SQLite file      |
-| `VETINARI_BO_PORT`          | `3000`                  | Port the server listens on         |
-| `VETINARI_BO_PROXY`         | `http://localhost:3000` | API target for the Vite dev server |
+| Variable                      | Default                 | Purpose                                    |
+| ----------------------------- | ----------------------- | ------------------------------------------ |
+| `VETINARI_BO_DATABASE_FILE`   | `./data/vetinari-bo.db` | Path to the local SQLite file              |
+| `VETINARI_BO_PORT`            | `3000`                  | Backoffice port                            |
+| `VETINARI_BO_HOST`            | `127.0.0.1`             | Backoffice bind address                    |
+| `VETINARI_BO_PUBLIC_PORT`     | `3001`                  | Enrollment form port                       |
+| `VETINARI_BO_PUBLIC_HOST`     | `0.0.0.0`               | Enrollment form bind address               |
+| `VETINARI_BO_PUBLIC_BASE_URL` | `http://localhost:3001` | Origin used to build form links            |
+| `VETINARI_BO_TRUST_PROXY`     | `false`                 | Trust `x-forwarded-for` when rate limiting |
+| `VETINARI_BO_PROXY`           | `http://localhost:3000` | API target for the Vite dev server         |
 
 ## Theming
 
@@ -98,6 +110,66 @@ The first page is the dashboard. It shows three metrics — workshops in the
 register, how many are still upcoming, and the seats those offer — above the
 workshop container view, which lists every workshop and shows an empty state
 until one is added.
+
+## The enrollment form
+
+Every workshop gets a public sign-up page, served by a **separate application on
+a separate port** from the backoffice. An attendee can reach the form and
+nothing else.
+
+### It is live the moment a workshop exists
+
+There is no publish step, no build, and no background job. The slug is generated
+when the workshop row is written, and `GET /w/:slug` reads the workshop at
+request time — so the form is reachable the instant you press save. The
+backoffice shows the link immediately after creation, on the workshop detail
+page, and in each list row.
+
+The slug carries a random suffix (`agentic-ai-kickstart-7f3k`), so a new
+workshop is **unlisted**: nobody can find or enumerate it, and it is reachable
+only by someone you send the link to. That is what makes publishing on save
+safe without a draft state.
+
+Treat the link as shareable-but-unguessable, not as an access control — anyone
+holding it can enroll.
+
+### What it collects
+
+| Field                                          | Required |
+| ---------------------------------------------- | -------- |
+| First name, last name, email address           | yes      |
+| Phone number, company, position in the company | no       |
+| Consent to store the details                   | yes      |
+
+The form is plain server-rendered HTML and submits as a normal form POST, so it
+works with JavaScript disabled and stays light on a phone. Submitting redirects
+to a confirmation page, so refreshing cannot enroll twice.
+
+Enrollment is refused when the workshop is full, when its date has passed, or
+when the email address is already enrolled. The seat check and the insert run in
+one transaction, so two people cannot both take the last seat.
+
+### How the two are kept apart
+
+- The public app is composed independently in `src/server/public/app.ts` and
+  imports nothing from `src/server/backoffice/`, so there is no shared mount
+  point through which an admin route could be exposed.
+- The backoffice binds to `127.0.0.1`, so it is not reachable from the network.
+- The public app never returns enrollee data. What it shows about a workshop is
+  an explicit projection, so a column added later cannot leak by default.
+- `test/isolation.test.ts` asserts the public app 404s on every backoffice
+  route. Treat that test as the feature, not as scaffolding.
+
+### Privacy
+
+Enrollments hold personal data, so the form carries a consent checkbox and a
+short notice explaining what is stored and why, and records `consented_at` as
+proof. Details are kept until the workshop has taken place. To service an
+erasure request, remove the person from the workshop detail page.
+
+Abuse protection on the public endpoint: per-IP rate limiting, a honeypot field,
+and a request size cap. The rate limiter is in-memory, so it resets on restart
+and would not survive running several instances.
 
 ## Workshops
 
@@ -145,28 +217,52 @@ curl -X POST http://localhost:3000/api/workshops \
 
 ## HTTP API
 
-| Method | Path             | Purpose                                             |
-| ------ | ---------------- | --------------------------------------------------- |
-| `GET`  | `/health`        | Liveness probe                                      |
-| `GET`  | `/api/workshops` | List workshops, soonest first                       |
-| `POST` | `/api/workshops` | Create a workshop; `400` carries field-level issues |
+Backoffice (`127.0.0.1:3000`):
+
+| Method   | Path                                           | Purpose                                             |
+| -------- | ---------------------------------------------- | --------------------------------------------------- |
+| `GET`    | `/health`                                      | Liveness probe                                      |
+| `GET`    | `/api/workshops`                               | List workshops, soonest first                       |
+| `GET`    | `/api/workshops/:id`                           | One workshop, with its form link and seat counts    |
+| `POST`   | `/api/workshops`                               | Create a workshop; `400` carries field-level issues |
+| `GET`    | `/api/workshops/:id/enrollments`               | Who enrolled                                        |
+| `GET`    | `/api/workshops/:id/enrollments.csv`           | Enrollments as CSV                                  |
+| `DELETE` | `/api/workshops/:id/enrollments/:enrollmentId` | Remove one enrollee                                 |
 
 Any other path serves the SPA shell.
+
+Public enrollment form (`:3001`) — the entire surface an attendee can reach:
+
+| Method | Path              | Purpose                                      |
+| ------ | ----------------- | -------------------------------------------- |
+| `GET`  | `/health`         | Liveness probe                               |
+| `GET`  | `/w/:slug`        | The enrollment form, or a full / closed page |
+| `POST` | `/w/:slug`        | Submit an enrollment, then redirect          |
+| `GET`  | `/w/:slug/thanks` | Confirmation                                 |
+| `GET`  | `/assets/*`       | The form's stylesheet                        |
+
+Everything else is a 404.
 
 ## Layout
 
 ```text
-src/                      server and database
-  contracts/              zod schemas shared by the API and the CLI
+src/                      servers and database
+  contracts/              zod schemas shared by the API, the form, and the CLI
   db/                     Kysely setup, node:sqlite dialect, migrations, repositories
-  server/                 Hono routes and SPA hosting
+  server/
+    config.ts             ports, bind addresses, and the public base URL
+    shared/spa/           static asset serving, used by both apps
+    backoffice/           the private app: workshops and enrollment management
+    public/               the public app: the hosted enrollment form only
+    main.ts               starts both servers
   scripts/                command-line entry points
-app/src/                  the SPA
+app/src/                  the backoffice SPA
   domain/                 client-side contracts and formatting
   transport/              fetch wrappers for the backoffice API
   application/            TanStack Query keys and hooks
   presentation/           routes, shell, shared UI, and feature pages
-test/                     Vitest suites
+public-web/styles.css     Tailwind entry for the server-rendered form
+test/                     Vitest suites, including the isolation boundary
 ```
 
 ## Database migrations

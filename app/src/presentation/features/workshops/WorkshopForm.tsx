@@ -8,6 +8,7 @@ import { Card } from "../../shared/ui/Card";
 import { CardHeader } from "../../shared/layout/CardHeader";
 import { Input } from "../../shared/ui/Input";
 import { Label } from "../../shared/ui/Label";
+import { PublicFormLink } from "./PublicFormLink";
 
 const EMPTY_FORM = {
   name: "",
@@ -27,17 +28,21 @@ const FIELDS: Array<{
   type: string;
   placeholder?: string;
   wide?: boolean;
+  optional?: boolean;
 }> = [
   { key: "name", label: "Name", type: "text", placeholder: "Agentic AI Kickstart" },
   { key: "date", label: "Date", type: "date" },
   { key: "maxApplicants", label: "Max applicants", type: "number" },
   { key: "subject", label: "Subject", type: "text", placeholder: "Building agents with Vetinari" },
   {
+    // The enrollment form is hosted from the workshop's slug, so this is only
+    // for an external marketing or landing page.
     key: "url",
-    label: "Workshop page URL",
+    label: "External page URL",
     type: "url",
     placeholder: "https://example.com/workshops/kickstart",
     wide: true,
+    optional: true,
   },
   { key: "locationName", label: "Location name", type: "text", placeholder: "De Hoorn" },
   {
@@ -79,15 +84,18 @@ export function WorkshopForm() {
       />
       <form className="space-y-4 p-5" onSubmit={handleSubmit}>
         <div className="grid gap-4 sm:grid-cols-2">
-          {FIELDS.map(({ key, label, placeholder, type, wide }) => {
+          {FIELDS.map(({ key, label, optional, placeholder, type, wide }) => {
             const issue = issueFor(key);
             return (
               <div key={key} className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}>
-                <Label htmlFor={`workshop-${key}`}>{label}</Label>
+                <Label htmlFor={`workshop-${key}`}>
+                  {label}
+                  {optional && <span className="text-muted-foreground"> (optional)</span>}
+                </Label>
                 <Input
                   id={`workshop-${key}`}
                   type={type}
-                  required
+                  required={!optional}
                   min={type === "number" ? 1 : undefined}
                   placeholder={placeholder}
                   value={form[key]}
@@ -118,10 +126,15 @@ export function WorkshopForm() {
             )}
             <span>Add workshop</span>
           </Button>
-          {createWorkshop.isSuccess && !createWorkshop.isPending && (
-            <p className="text-sm text-muted-foreground">Workshop added.</p>
-          )}
         </div>
+        {createWorkshop.isSuccess && createWorkshop.data && !createWorkshop.isPending && (
+          <div className="space-y-2 pt-1">
+            <p className="text-sm font-medium">
+              Workshop added. Its enrollment form is already live.
+            </p>
+            <PublicFormLink url={createWorkshop.data.publicUrl} />
+          </div>
+        )}
       </form>
     </Card>
   );
