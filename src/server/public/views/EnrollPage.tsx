@@ -127,14 +127,15 @@ export function EnrollPage({
               />
               <span>
                 I agree that my details may be stored so the organiser can contact me about this
-                workshop.
+                workshop and related ones.
               </span>
             </label>
             {errors.consent && <p class="mt-2 text-xs text-destructive">{errors.consent}</p>}
             <p class="mt-3 text-xs text-muted-foreground">
-              Your details are used only to manage your place at this workshop. They are kept until
-              the workshop has taken place and are not shared with anyone else. To have them removed
-              sooner, reply to the organiser.
+              Your details are used to manage your place at this workshop and to keep in touch about
+              related ones. If you name your company, we look it up in public company registers.
+              Your name and contact details are not shared with anyone else. To have them removed,
+              reply to the organiser.
             </p>
           </div>
 

@@ -5,6 +5,8 @@ import { AppShell } from "../app/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { WorkshopsPage } from "../features/workshops/WorkshopsPage";
 import { WorkshopDetailPage } from "../features/workshops/WorkshopDetailPage";
+import { LeadsPage } from "../features/leads/LeadsPage";
+import { LeadDetailPage } from "../features/leads/LeadDetailPage";
 import { AgentsPage } from "../features/agents/AgentsPage";
 import { AgentDetailPage } from "../features/agents/AgentDetailPage";
 
@@ -40,6 +42,24 @@ const workshopDetailRoute = createRoute({
   component: WorkshopDetailPage,
 });
 
+const leadsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/leads",
+});
+
+const leadsIndexRoute = createRoute({
+  getParentRoute: () => leadsRoute,
+  path: "/",
+  component: LeadsPage,
+});
+
+/** Lead detail: contact details, the company lookup, and workshops enrolled for. */
+const leadDetailRoute = createRoute({
+  getParentRoute: () => leadsRoute,
+  path: "$leadId",
+  component: LeadDetailPage,
+});
+
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agents",
@@ -61,6 +81,7 @@ const agentDetailRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   workshopsRoute.addChildren([workshopsIndexRoute, workshopDetailRoute]),
+  leadsRoute.addChildren([leadsIndexRoute, leadDetailRoute]),
   agentsRoute.addChildren([agentsIndexRoute, agentDetailRoute]),
 ]);
 

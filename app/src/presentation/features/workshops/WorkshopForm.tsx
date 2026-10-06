@@ -11,11 +11,10 @@ import { Label } from "../../shared/ui/Label";
 import { PublicFormLink } from "./PublicFormLink";
 
 const EMPTY_FORM = {
+  subject: "",
   name: "",
   date: "",
   maxApplicants: "",
-  subject: "",
-  url: "",
   locationName: "",
   locationAddress: "",
 };
@@ -28,22 +27,16 @@ const FIELDS: Array<{
   type: string;
   placeholder?: string;
   wide?: boolean;
-  optional?: boolean;
 }> = [
-  { key: "name", label: "Name", type: "text", placeholder: "Agentic AI Kickstart" },
-  { key: "date", label: "Date", type: "date" },
-  { key: "maxApplicants", label: "Max applicants", type: "number" },
-  { key: "subject", label: "Subject", type: "text", placeholder: "Building agents with Vetinari" },
   {
-    // The enrollment form is hosted from the workshop's slug, so this is only
-    // for an external marketing or landing page.
-    key: "url",
-    label: "External page URL",
-    type: "url",
-    placeholder: "https://example.com/workshops/kickstart",
+    key: "subject",
+    label: "Subject",
+    type: "text",
+    placeholder: "Building agents with Vetinari",
     wide: true,
-    optional: true,
   },
+  { key: "name", label: "Internal name", type: "text", placeholder: "Agentic AI Kickstart" },
+  { key: "date", label: "Date", type: "date" },
   { key: "locationName", label: "Location name", type: "text", placeholder: "De Hoorn" },
   {
     key: "locationAddress",
@@ -51,6 +44,7 @@ const FIELDS: Array<{
     type: "text",
     placeholder: "Sluisstraat 79, 3000 Leuven",
   },
+  { key: "maxApplicants", label: "Max applicants", type: "number" },
 ];
 
 /** Form that writes a new workshop into the local database. */
@@ -65,11 +59,10 @@ export function WorkshopForm() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input: WorkshopInput = {
+      subject: form.subject,
       name: form.name,
       date: form.date,
       maxApplicants: Number(form.maxApplicants),
-      subject: form.subject,
-      url: form.url,
       locationName: form.locationName,
       locationAddress: form.locationAddress,
     };
@@ -84,18 +77,15 @@ export function WorkshopForm() {
       />
       <form className="space-y-4 p-5" onSubmit={handleSubmit}>
         <div className="grid gap-4 sm:grid-cols-2">
-          {FIELDS.map(({ key, label, optional, placeholder, type, wide }) => {
+          {FIELDS.map(({ key, label, placeholder, type, wide }) => {
             const issue = issueFor(key);
             return (
               <div key={key} className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}>
-                <Label htmlFor={`workshop-${key}`}>
-                  {label}
-                  {optional && <span className="text-muted-foreground"> (optional)</span>}
-                </Label>
+                <Label htmlFor={`workshop-${key}`}>{label}</Label>
                 <Input
                   id={`workshop-${key}`}
                   type={type}
-                  required={!optional}
+                  required
                   min={type === "number" ? 1 : undefined}
                   placeholder={placeholder}
                   value={form[key]}

@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { createWorkshopsRouter } from "./http/workshops.js";
 import { createEnrollmentsRouter } from "./http/enrollments.js";
 import { createAgentsRouter } from "./http/agents.js";
+import { createLeadsRouter } from "./http/leads.js";
+import type { LeadResearcher } from "../../leads/leadResearcher.js";
 import { LiteLlmClient } from "../../llm/liteLlm.js";
 import type { AgentDefinition } from "../../agents/types.js";
 import { DEFAULT_LITELLM_BASE_URL } from "../config.js";
@@ -19,6 +21,8 @@ export interface BackofficeAppOptions {
   readonly liteLlm?: LiteLlmClient;
   /** Built-in agents to serve. Defaults to none. */
   readonly agents?: readonly AgentDefinition[];
+  /** Looks up each lead's company. Without it, lookups cannot be retried. */
+  readonly researcher?: LeadResearcher;
 }
 
 /**
@@ -32,6 +36,7 @@ export function createBackofficeApp(db: BackofficeDatabase, options: BackofficeA
   app.get("/health", (context) => context.json({ status: "ok" }));
   app.route(API_BASE_PATH, createWorkshopsRouter(db, options.publicBaseUrl));
   app.route(API_BASE_PATH, createEnrollmentsRouter(db));
+  app.route(API_BASE_PATH, createLeadsRouter(db, options.researcher));
   const liteLlm =
     options.liteLlm ?? new LiteLlmClient({ baseUrl: DEFAULT_LITELLM_BASE_URL, apiKey: undefined });
   app.route(API_BASE_PATH, createAgentsRouter(options.agents ?? [], liteLlm));

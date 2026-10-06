@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { createEnrollRouter } from "./http/enroll.js";
 import { readAsset, resolveAssetsDir } from "../shared/spa/assets.js";
 import type { BackofficeDatabase } from "../../db/index.js";
+import type { EnrollRouterOptions } from "./http/enroll.js";
 
-export interface PublicAppOptions {
-  /** Trust `x-forwarded-for` for rate limiting. Only behind a proxy you control. */
-  readonly trustProxy?: boolean;
-}
+/**
+ * `onEnrolled` is injected by the entry point rather than imported, so the
+ * public app stays free of anything the backoffice owns.
+ */
+export type PublicAppOptions = EnrollRouterOptions;
 
 /**
  * Compose the public enrollment application.

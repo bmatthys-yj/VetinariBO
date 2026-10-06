@@ -11,6 +11,17 @@ export {
   listWorkshops,
 } from "./db/workshops.js";
 export { createEnrollment, deleteEnrollment, listEnrollments } from "./db/enrollments.js";
+export { deleteLead, findLeadById, listLeads } from "./db/leads.js";
+export { companyProfileSchema, COMPANY_RESEARCH_STATUSES } from "./contracts/lead.js";
+export type {
+  CompanyProfile,
+  CompanyResearchStatus,
+  Lead,
+  LeadDetail,
+  LeadSummary,
+  LeadWorkshop,
+} from "./contracts/lead.js";
+export { LeadResearcher } from "./leads/leadResearcher.js";
 export { workshopInputSchema } from "./contracts/workshop.js";
 export type { Workshop, WorkshopInput, WorkshopSummary } from "./contracts/workshop.js";
 export { enrollmentInputSchema, EnrollmentRefusedError } from "./contracts/enrollment.js";

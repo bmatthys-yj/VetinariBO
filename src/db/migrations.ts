@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { sql, type Migration, type MigrationProvider } from "kysely";
 import { generateWorkshopSlug } from "./slug.js";
 
@@ -179,6 +180,87 @@ const dropAgents: Migration = {
   },
 };
 
+/**
+ * Leads: people who enrolled on behalf of a company, one per email address.
+ *
+ * Existing enrollments that named a company are backfilled into leads, using
+ * the details from each person's most recent enrollment. They start `pending`,
+ * so the company lookup picks them up on the next server start.
+ */
+const createLeads: Migration = {
+  async up(db) {
+    await db.schema
+      .createTable("leads")
+      .addColumn("id", "text", (column) => column.primaryKey())
+      .addColumn("first_name", "text", (column) => column.notNull())
+      .addColumn("last_name", "text", (column) => column.notNull())
+      .addColumn("email", "text", (column) => column.notNull().unique())
+      .addColumn("phone", "text")
+      .addColumn("company", "text", (column) => column.notNull())
+      .addColumn("position", "text")
+      .addColumn("company_research_status", "text", (column) => column.notNull())
+      .addColumn("company_research_error", "text")
+      .addColumn("company_researched_at", "text")
+      .addColumn("company_profile", "text")
+      .addColumn("created_at", "text", (column) => column.notNull())
+      .addColumn("updated_at", "text", (column) => column.notNull())
+      .execute();
+
+    await db.schema
+      .alterTable("enrollments")
+      .addColumn("lead_id", "text", (column) => column.references("leads.id").onDelete("set null"))
+      .execute();
+    await db.schema
+      .createIndex("enrollments_lead_id_index")
+      .on("enrollments")
+      .column("lead_id")
+      .execute();
+
+    const rows = await db
+      .selectFrom("enrollments")
+      .select(["id", "first_name", "last_name", "email", "phone", "company", "position"])
+      .select("created_at")
+      .where("company", "is not", null)
+      .orderBy("created_at", "desc")
+      .execute();
+
+    const leadIdByEmail = new Map<string, string>();
+    for (const row of rows) {
+      const email = String(row.email).toLowerCase();
+      let leadId = leadIdByEmail.get(email);
+      if (!leadId) {
+        leadId = randomUUID();
+        leadIdByEmail.set(email, leadId);
+        await db
+          .insertInto("leads")
+          .values({
+            id: leadId,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            email,
+            phone: row.phone,
+            company: row.company,
+            position: row.position,
+            company_research_status: "pending",
+            created_at: row.created_at,
+            updated_at: row.created_at,
+          })
+          .execute();
+      }
+      await db
+        .updateTable("enrollments")
+        .set({ lead_id: leadId })
+        .where("id", "=", row.id)
+        .execute();
+    }
+  },
+  async down(db) {
+    await db.schema.dropIndex("enrollments_lead_id_index").execute();
+    await db.schema.alterTable("enrollments").dropColumn("lead_id").execute();
+    await db.schema.dropTable("leads").execute();
+  },
+};
+
 /** Ordered migration set. Names sort lexicographically, so keep the numeric prefix. */
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_create_workshops": createWorkshops,
@@ -187,6 +269,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   "0004_create_enrollments": createEnrollments,
   "0005_create_agents": createAgents,
   "0006_drop_agents": dropAgents,
+  "0007_create_leads": createLeads,
 };
 
 export const migrationProvider: MigrationProvider = {

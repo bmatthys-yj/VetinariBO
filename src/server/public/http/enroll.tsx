@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { EnrollmentRefusedError, enrollmentInputSchema } from "../../../contracts/enrollment.js";
+import {
+  EnrollmentRefusedError,
+  enrollmentInputSchema,
+  type Enrollment,
+} from "../../../contracts/enrollment.js";
 import { createEnrollment } from "../../../db/enrollments.js";
 import { findWorkshopBySlug } from "../../../db/workshops.js";
 import type { WorkshopWithSeats } from "../../../db/workshops.js";
@@ -61,6 +65,11 @@ const REFUSAL_MESSAGES: Record<string, string> = {
 export interface EnrollRouterOptions {
   /** Trust `x-forwarded-for` for rate limiting. Only behind a proxy you control. */
   readonly trustProxy?: boolean;
+  /**
+   * Called after an enrollment is stored, such as to queue its lead's company
+   * lookup. It must return quickly: the attendee's redirect waits for it.
+   */
+  readonly onEnrolled?: (enrollment: Enrollment) => void;
 }
 
 /** The entire public surface: view a workshop's form and submit it. */
@@ -134,8 +143,9 @@ export function createEnrollRouter(
         return context.html(<EnrollPage workshop={view} values={values} errors={errors} />, 400);
       }
 
+      let enrollment: Enrollment;
       try {
-        await createEnrollment(db, workshop.id, parsed.data);
+        enrollment = await createEnrollment(db, workshop.id, parsed.data);
       } catch (error) {
         if (error instanceof EnrollmentRefusedError) {
           if (error.reason === "full")
@@ -152,6 +162,13 @@ export function createEnrollRouter(
           );
         }
         throw error;
+      }
+
+      try {
+        options.onEnrolled?.(enrollment);
+      } catch (error) {
+        // The enrollment is stored; follow-up work failing must not undo that for the attendee.
+        console.error("Post-enrollment hook failed.", error);
       }
 
       // Redirect after POST, so refreshing the confirmation cannot resubmit.
