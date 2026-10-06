@@ -176,8 +176,11 @@ one transaction, so two people cannot both take the last seat.
 
 Enrollments hold personal data, so the form carries a consent checkbox and a
 short notice explaining what is stored and why, and records `consented_at` as
-proof. Details are kept until the workshop has taken place. To service an
-erasure request, remove the person from the workshop detail page.
+proof. Someone who names their company becomes a [lead](#leads) and is kept
+after the workshop, and their company is looked up in public registers; the
+notice says both. To service an erasure request, use **Erase** on the lead
+detail page, which removes the lead and every enrollment it made. Someone who
+named no company is removed from the workshop detail page.
 
 Abuse protection on the public endpoint: per-IP rate limiting, a honeypot field,
 and a request size cap. The rate limiter is in-memory, so it resets on restart
@@ -226,6 +229,46 @@ curl -X POST http://localhost:3100/api/workshops \
        "url":"https://example.com/workshops/kickstart",
        "locationName":"De Hoorn","locationAddress":"Sluisstraat 79, 3000 Leuven"}'
 ```
+
+## Leads
+
+Anyone who names their company on an enrollment form becomes a lead. The
+**Leads** section in the sidebar lists them; a lead's page shows what they filled
+in, the workshops they enrolled for (marked upcoming or taken place), and what
+the Pappers agent found about their company.
+
+- **One lead per person.** Leads are matched by email address, so enrolling for
+  a second workshop joins the existing lead and refreshes the details given. A
+  known lead who leaves the company field empty next time still collects the
+  workshop; someone who never names a company never becomes a lead.
+- **Created with the enrollment.** The lead is written in the same transaction
+  as the enrollment, so there is no enrollment without its lead or the reverse.
+- **The company is looked up in the background.** After the enrollment is
+  stored, the public app hands the lead to a `LeadResearcher`
+  (`src/leads/leadResearcher.ts`), which runs the
+  [Pappers agent](#pappers-company-researcher) with a fixed task: find the
+  company, fetch it, and answer with a JSON profile — name, registration number,
+  address, number of employees, what the company does, legal form, status, and a
+  short summary. The reply is validated with zod before it is stored; anything
+  else marks the lookup as failed. The attendee's redirect never waits for it.
+- **Only the company leaves the backoffice.** The agent receives the company
+  name as typed and the email domain, and the domain only when it is not a
+  personal mailbox such as `gmail.com`. Names, phone numbers, and full email
+  addresses are never sent to the model.
+- **Lookups run one at a time and survive restarts.** The status lives in the
+  lead row (`pending`, `running`, `found`, `not_found`, `failed`, `skipped`), and
+  the server queues any unfinished lookup on start. Leads that were `skipped`
+  because the agent was not configured are retried on the first start after it
+  is. **Look up again** on the lead page re-runs a lookup by hand.
+- **Changing company starts over.** If a lead enrolls again under another
+  company name, the old profile is cleared and a new lookup is queued.
+
+Each lookup costs Pappers credits and a few model calls — typically a search and
+one `get_company`, plus the `financials` section when the base record has no
+headcount.
+
+The public app does not import the researcher: `src/server/main.ts` passes it an
+`onEnrolled` callback, so the isolation boundary is unchanged.
 
 ## Agents
 
@@ -316,6 +359,10 @@ Backoffice (`127.0.0.1:3100`):
 | `GET`    | `/api/workshops/:id/enrollments`               | Who enrolled                                           |
 | `GET`    | `/api/workshops/:id/enrollments.csv`           | Enrollments as CSV                                     |
 | `DELETE` | `/api/workshops/:id/enrollments/:enrollmentId` | Remove one enrollee                                    |
+| `GET`    | `/api/leads`                                   | List leads, newest first, with their workshop count    |
+| `GET`    | `/api/leads/:id`                               | One lead, with its company profile and workshops       |
+| `POST`   | `/api/leads/:id/research`                      | Look the company up again; `503` until configured      |
+| `DELETE` | `/api/leads/:id`                               | Erase a lead and all of its enrollments                |
 | `GET`    | `/api/agents`                                  | List the built-in agents                               |
 | `GET`    | `/api/agents/:id`                              | One agent, with its instructions and tools             |
 | `POST`   | `/api/agents/:id/runs`                         | Run a prompt; `503` until configured, `502` on failure |
@@ -342,11 +389,12 @@ src/                      servers and database
   contracts/              zod schemas shared by the API, the form, and the CLI
   db/                     Kysely setup, node:sqlite dialect, migrations, repositories
   agents/                 built-in agents, their tools, and the tool-calling loop
+  leads/                  the background queue that looks up each lead's company
   llm/                    fetch client for the LiteLLM gateway
   server/
     config.ts             ports, bind addresses, and the public base URL
     shared/spa/           static asset serving, used by both apps
-    backoffice/           the private app: workshops, enrollments, and agents
+    backoffice/           the private app: workshops, enrollments, leads, and agents
     public/               the public app: the hosted enrollment form only
     main.ts               starts both servers
   scripts/                command-line entry points

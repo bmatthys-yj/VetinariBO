@@ -20,10 +20,14 @@ function startOfToday(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+/** Whether a workshop on this ISO calendar date is today or later. */
+export function isUpcoming(date: string): boolean {
+  return date >= startOfToday();
+}
+
 /** Workshops that have not happened yet, soonest first. */
 export function upcomingWorkshops(workshops: Workshop[]): Workshop[] {
-  const today = startOfToday();
-  return workshops.filter((workshop) => workshop.date >= today);
+  return workshops.filter((workshop) => isUpcoming(workshop.date));
 }
 
 /** Total seats offered across the given workshops. */

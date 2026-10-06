@@ -116,9 +116,19 @@ export function WorkshopDetailPage() {
                 className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="font-medium">
-                    {enrollment.firstName} {enrollment.lastName}
-                  </p>
+                  {enrollment.leadId ? (
+                    <Link
+                      to="/leads/$leadId"
+                      params={{ leadId: enrollment.leadId }}
+                      className="font-medium underline-offset-4 hover:underline"
+                    >
+                      {enrollment.firstName} {enrollment.lastName}
+                    </Link>
+                  ) : (
+                    <p className="font-medium">
+                      {enrollment.firstName} {enrollment.lastName}
+                    </p>
+                  )}
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
                     {enrollment.email}
                     {enrollment.phone && ` · ${enrollment.phone}`}

@@ -20,6 +20,8 @@ export function useDeleteEnrollment(workshopId: string) {
       await queryClient.invalidateQueries({ queryKey: queryKeys.enrollments(workshopId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.workshop(workshopId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.workshops });
+      // A lead lists the workshops it enrolled for.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.leads });
     },
   });
 }

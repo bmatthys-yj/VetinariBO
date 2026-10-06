@@ -21,6 +21,8 @@ export interface Enrollment extends EnrollmentInput {
   /** When the person ticked the consent box, kept as proof of consent. */
   readonly consentedAt: string;
   readonly createdAt: string;
+  /** The lead this enrollment belongs to, when the person named a company. */
+  readonly leadId?: string;
 }
 
 /** Why an enrollment was refused, so each surface can phrase it itself. */

@@ -2,17 +2,18 @@ import { MapPin, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Workshop } from "../../../domain/contracts";
 import { formatWorkshopDate } from "../../../domain/workshop";
-import { buttonVariants } from "../../shared/ui/Button";
 import { PublicFormLink } from "./PublicFormLink";
 
 export function WorkshopRow({ workshop }: { workshop: Workshop }) {
   return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="relative flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <Link
           to="/workshops/$workshopId"
           params={{ workshopId: workshop.id }}
-          className="truncate font-medium underline-offset-4 hover:underline"
+          // The overlay stretches the link over the whole row, so tapping
+          // anywhere opens the workshop.
+          className="truncate font-medium underline-offset-4 after:absolute after:inset-0 hover:underline"
         >
           {workshop.name}
         </Link>
@@ -36,14 +37,10 @@ export function WorkshopRow({ workshop }: { workshop: Workshop }) {
           </p>
           <p className="text-xs text-muted-foreground">enrolled</p>
         </div>
-        <PublicFormLink url={workshop.publicUrl} compact />
-        <Link
-          to="/workshops/$workshopId"
-          params={{ workshopId: workshop.id }}
-          className={buttonVariants({ variant: "outline", className: "h-8 shrink-0 px-3" })}
-        >
-          Details
-        </Link>
+        {/* Raised above the row link so it opens the form, not the detail page. */}
+        <div className="relative z-10">
+          <PublicFormLink url={workshop.publicUrl} compact />
+        </div>
       </div>
     </div>
   );

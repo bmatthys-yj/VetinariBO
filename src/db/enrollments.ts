@@ -5,6 +5,7 @@ import {
   type EnrollmentInput,
 } from "../contracts/enrollment.js";
 import type { BackofficeDatabase } from "./index.js";
+import { findLeadIdByEmail, upsertLeadFromEnrollment } from "./leads.js";
 import type { EnrollmentTable } from "./schema.js";
 
 function toEnrollment(row: EnrollmentTable): Enrollment {
@@ -19,6 +20,7 @@ function toEnrollment(row: EnrollmentTable): Enrollment {
     position: row.position ?? undefined,
     consentedAt: row.consented_at,
     createdAt: row.created_at,
+    leadId: row.lead_id ?? undefined,
   };
 }
 
@@ -48,6 +50,10 @@ export async function listEnrollments(
  * Enroll someone, refusing when the workshop is full, past, or already holds
  * this email address.
  *
+ * Someone who names their company becomes a lead, or joins the lead their
+ * email address already has; the returned `leadId` says which. Someone who
+ * names no company joins an existing lead but never creates one.
+ *
  * The seat count and the insert run in one transaction so two submissions
  * arriving together cannot both take the last seat.
  */
@@ -68,6 +74,7 @@ export async function createEnrollment(
     position: input.position ?? null,
     consented_at: now,
     created_at: now,
+    lead_id: null,
   };
 
   return db.transaction().execute(async (trx) => {
@@ -96,6 +103,12 @@ export async function createEnrollment(
       .executeTakeFirst();
     if (existing) throw new EnrollmentRefusedError("duplicate");
 
+    if (input.company) {
+      row.lead_id = await upsertLeadFromEnrollment(trx, { ...input, company: input.company }, now);
+    } else {
+      // No company this time, but a known lead still collects the workshop.
+      row.lead_id = await findLeadIdByEmail(trx, row.email);
+    }
     await trx.insertInto("enrollments").values(row).execute();
     return toEnrollment(row);
   });

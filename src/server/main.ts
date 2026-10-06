@@ -7,6 +7,8 @@ import { readServerConfig } from "./config.js";
 import { LiteLlmClient } from "../llm/liteLlm.js";
 import { loadEnvFile } from "../env.js";
 import { createBuiltInAgents } from "../agents/registry.js";
+import { PAPPERS_AGENT_ID } from "../agents/pappers/pappersAgent.js";
+import { LeadResearcher } from "../leads/leadResearcher.js";
 
 loadEnvFile();
 
@@ -22,13 +24,24 @@ const agents = createBuiltInAgents({
   pappersApiToken: config.pappersApiToken,
 });
 
+const researcher = new LeadResearcher(db, {
+  liteLlm,
+  agent: agents.find((agent) => agent.id === PAPPERS_AGENT_ID),
+});
+
 await migrateToLatest(db);
+await researcher.resume();
 
 // Two apps, two ports. The backoffice binds to loopback by default, so only the
 // public form is reachable from the network.
 serve(
   {
-    fetch: createBackofficeApp(db, { publicBaseUrl: config.publicBaseUrl, liteLlm, agents }).fetch,
+    fetch: createBackofficeApp(db, {
+      publicBaseUrl: config.publicBaseUrl,
+      liteLlm,
+      agents,
+      researcher,
+    }).fetch,
     hostname: config.backofficeHost,
     port: config.backofficePort,
   },
@@ -42,8 +55,13 @@ serve(
 
 serve(
   {
-    fetch: createPublicApp(db, { trustProxy: process.env.VETINARI_BO_TRUST_PROXY === "true" })
-      .fetch,
+    fetch: createPublicApp(db, {
+      trustProxy: process.env.VETINARI_BO_TRUST_PROXY === "true",
+      // A new or changed lead is queued for its company lookup; anyone else is skipped.
+      onEnrolled: (enrollment) => {
+        if (enrollment.leadId) researcher.enqueue(enrollment.leadId);
+      },
+    }).fetch,
     hostname: config.publicHost,
     port: config.publicPort,
   },

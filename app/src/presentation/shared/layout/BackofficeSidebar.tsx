@@ -1,10 +1,11 @@
-import { Bot, CalendarDays, LayoutDashboard } from "lucide-react";
+import { Bot, CalendarDays, Contact, LayoutDashboard } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ThemeSelector } from "../theme/ThemeSelector";
 
 const navigation = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/workshops", label: "Workshops", icon: CalendarDays },
+  { to: "/leads", label: "Leads", icon: Contact },
   { to: "/agents", label: "Agents", icon: Bot },
 ] as const;
 

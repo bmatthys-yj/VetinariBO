@@ -2,7 +2,7 @@
  * The `workshops` table.
  *
  * Columns use snake_case to stay idiomatic for SQL, and the repositories in
- * `workshops.ts` and `enrollments.ts` are the single place that map them to the
+ * `workshops.ts`, `enrollments.ts`, and `leads.ts` are the single place that map them to the
  * camelCase contracts shared with the web client.
  */
 export interface WorkshopTable {
@@ -35,10 +35,38 @@ export interface EnrollmentTable {
   /** Proof of consent, recorded when the form was submitted. */
   consented_at: string;
   created_at: string;
+  /** The lead this enrollment created or joined, when a company was given. */
+  lead_id: string | null;
+}
+
+/**
+ * A person who enrolled on behalf of a company, identified by email.
+ *
+ * Enrolling for a second workshop links to the same lead rather than creating
+ * another, so a lead collects every workshop the person signed up for.
+ */
+export interface LeadTable {
+  id: string;
+  first_name: string;
+  last_name: string;
+  /** Lowercased, unique. */
+  email: string;
+  phone: string | null;
+  company: string;
+  position: string | null;
+  /** One of `COMPANY_RESEARCH_STATUSES`. */
+  company_research_status: string;
+  company_research_error: string | null;
+  company_researched_at: string | null;
+  /** `CompanyProfile` as JSON, once the Pappers agent found the company. */
+  company_profile: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** The Kysely table registry for the backoffice database. */
 export interface BackofficeSchema {
   workshops: WorkshopTable;
   enrollments: EnrollmentTable;
+  leads: LeadTable;
 }
