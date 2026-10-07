@@ -21,17 +21,16 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p app/tsconfig.json --noEmit",
     "db:add-workshop": "pnpm run build:server && node dist/scripts/addWorkshop.js",
-    "build:public-css": "tailwindcss -i public-web/styles.css -o dist/public/assets/styles.css --minify",
-    "litellm:up": "docker compose --env-file .env -f infra/litellm/docker-compose.yml up -d",
-    "litellm:down": "docker compose --env-file .env -f infra/litellm/docker-compose.yml down",
-    "litellm:logs": "docker compose --env-file .env -f infra/litellm/docker-compose.yml logs -f litellm",
-    "litellm:health": "docker compose --env-file .env -f infra/litellm/docker-compose.yml ps && docker compose --env-file .env -f infra/litellm/docker-compose.yml exec litellm python3 -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5).read().decode())\""
+    "build:public-css": "tailwindcss -i public-web/styles.css -o dist/public/assets/styles.css --minify"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@hono/node-server": "^1.14.0",
     "@hono/zod-validator": "^0.7.6",
+    "@mastra/core": "1.65.0",
+    "@quinus-yj/vetinari-provider-litellm": "0.0.1",
+    "@quinus-yj/vetinari-runtime": "0.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.90.3",
     "@tanstack/react-router": "^1.170.34",

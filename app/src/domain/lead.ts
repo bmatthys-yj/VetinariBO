@@ -7,7 +7,7 @@ export function leadName(lead: Pick<Lead, "firstName" | "lastName">): string {
 
 /** Whether the company lookup is still going, so the page should keep polling. */
 export function isResearchInProgress(status: CompanyResearchStatus): boolean {
-  return status === "pending" || status === "running";
+  return status === "running";
 }
 
 /** The company name to show: the register's once found, otherwise what was typed. */
@@ -16,7 +16,7 @@ export function leadCompanyName(lead: Lead): string {
 }
 
 export const RESEARCH_STATUS_LABELS: Record<CompanyResearchStatus, string> = {
-  pending: "Queued",
+  pending: "Not started",
   running: "Looking up…",
   found: "Found",
   not_found: "Not found",

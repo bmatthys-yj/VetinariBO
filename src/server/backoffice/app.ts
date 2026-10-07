@@ -1,12 +1,8 @@
 import { Hono } from "hono";
 import { createWorkshopsRouter } from "./http/workshops.js";
 import { createEnrollmentsRouter } from "./http/enrollments.js";
-import { createAgentsRouter } from "./http/agents.js";
 import { createLeadsRouter } from "./http/leads.js";
-import type { LeadResearcher } from "../../leads/leadResearcher.js";
-import { LiteLlmClient } from "../../llm/liteLlm.js";
-import type { AgentDefinition } from "../../agents/types.js";
-import { DEFAULT_LITELLM_BASE_URL } from "../config.js";
+import type { createLeadResearch } from "../leadResearch.js";
 import { createSpaRouter } from "../shared/spa/router.js";
 import { resolveAssetsDir } from "../shared/spa/assets.js";
 import type { BackofficeDatabase } from "../../db/index.js";
@@ -17,12 +13,8 @@ export const API_BASE_PATH = "/api";
 export interface BackofficeAppOptions {
   /** Origin the hosted enrollment form is reachable at, used to build links. */
   readonly publicBaseUrl: string;
-  /** Gateway the agents run through. Defaults to an unconfigured local gateway. */
-  readonly liteLlm?: LiteLlmClient;
-  /** Built-in agents to serve. Defaults to none. */
-  readonly agents?: readonly AgentDefinition[];
   /** Looks up each lead's company. Without it, lookups cannot be retried. */
-  readonly researcher?: LeadResearcher;
+  readonly researchCompany?: ReturnType<typeof createLeadResearch>["request"];
 }
 
 /**
@@ -36,10 +28,7 @@ export function createBackofficeApp(db: BackofficeDatabase, options: BackofficeA
   app.get("/health", (context) => context.json({ status: "ok" }));
   app.route(API_BASE_PATH, createWorkshopsRouter(db, options.publicBaseUrl));
   app.route(API_BASE_PATH, createEnrollmentsRouter(db));
-  app.route(API_BASE_PATH, createLeadsRouter(db, options.researcher));
-  const liteLlm =
-    options.liteLlm ?? new LiteLlmClient({ baseUrl: DEFAULT_LITELLM_BASE_URL, apiKey: undefined });
-  app.route(API_BASE_PATH, createAgentsRouter(options.agents ?? [], liteLlm));
+  app.route(API_BASE_PATH, createLeadsRouter(db, options.researchCompany));
   app.route("/", createSpaRouter(resolveAssetsDir("app")));
   return app;
 }
