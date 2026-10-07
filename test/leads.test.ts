@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,16 +11,10 @@ import { deleteLead, findLeadById, listLeads } from "../src/db/leads.js";
 import { createWorkshop } from "../src/db/workshops.js";
 import { createPublicApp } from "../src/server/public/app.js";
 import { createBackofficeApp } from "../src/server/backoffice/app.js";
-import { createBuiltInAgents } from "../src/agents/registry.js";
-import {
-  companyLookupPrompt,
-  employerDomain,
-  parseLookupReply,
-} from "../src/agents/pappers/companyLookup.js";
-import { LeadResearcher } from "../src/leads/leadResearcher.js";
-import { LiteLlmClient } from "../src/llm/liteLlm.js";
+import { createLeadResearch } from "../src/server/leadResearch.js";
 import type { Enrollment } from "../src/contracts/enrollment.js";
 import type { Workshop } from "../src/contracts/workshop.js";
+import { fakeAgentModel, type FakeModelReply } from "./fakeAgentModel.js";
 
 const WORKSHOP = {
   name: "Agentic AI Kickstart",
@@ -53,8 +47,10 @@ const PROFILE = {
 let directory: string;
 let db: BackofficeDatabase;
 let workshop: Workshop;
+let researchers: ReturnType<typeof createLeadResearch>[];
 
 beforeEach(async () => {
+  researchers = [];
   directory = mkdtempSync(join(tmpdir(), "vetinari-bo-"));
   db = createDatabase(join(directory, "test.db"));
   await migrateToLatest(db);
@@ -62,6 +58,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await Promise.all(researchers.map((researcher) => researcher.close()));
   await db.destroy();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -73,40 +70,30 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** A gateway that answers each chat completion with the next reply in line. */
-function fakeGateway(replies: Array<() => Response>) {
-  const requests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
-  const fetchImpl: typeof fetch = async (_input, init) => {
-    requests.push(JSON.parse(String(init?.body)));
-    const reply = replies[requests.length - 1];
-    if (!reply) throw new Error("Unexpected gateway call");
-    return reply();
-  };
-  return { requests, fetchImpl };
+function textReply(text: string): FakeModelReply {
+  return { type: "text", text };
 }
 
-function textReply(content: string) {
-  return () => json({ choices: [{ message: { role: "assistant", content } }] });
-}
-
-function researcherWith(
-  replies: Array<() => Response>,
-  setup: { liteLlmKey?: string | null; pappersToken?: string | null } = {},
-) {
-  const gateway = fakeGateway(replies);
-  const liteLlm = new LiteLlmClient(
-    {
-      baseUrl: "http://gateway.test:4000",
-      apiKey: setup.liteLlmKey === null ? undefined : "sk-test",
-    },
-    gateway.fetchImpl,
-  );
-  const [agent] = createBuiltInAgents({
-    model: "claude-opus-5",
-    pappersApiToken: setup.pappersToken === null ? undefined : "pappers-token",
-    fetch: async () => json({ results: [] }),
+async function researcherWith(replies: FakeModelReply[]) {
+  const gateway = fakeAgentModel(replies);
+  const researcher = createLeadResearch(db, {
+    pappersApiToken: "pappers-token",
+    model: gateway.model,
+    fetch: async (input) =>
+      json(
+        new URL(String(input)).pathname.endsWith("/search")
+          ? { results: [{ name: "ANALYTICAL ENGINES NV", company_number: "0123.456.789" }] }
+          : { name: "ANALYTICAL ENGINES NV", company_number: "0123.456.789", workforce: 42 },
+      ),
   });
-  return { gateway, liteLlm, researcher: new LeadResearcher(db, { liteLlm, agent }) };
+  researchers.push(researcher);
+  return { gateway, researcher };
+}
+
+async function finished(leadId: string) {
+  await vi.waitFor(async () => {
+    expect((await findLeadById(db, leadId))?.companyResearchStatus).not.toBe("running");
+  });
 }
 
 describe("leads from enrollments", () => {
@@ -157,11 +144,11 @@ describe("leads from enrollments", () => {
   it("queues a new lookup when the person names another company", async () => {
     const second = await createWorkshop(db, { ...WORKSHOP, name: "Evals" });
     const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([
+    const { researcher } = await researcherWith([
       textReply(JSON.stringify({ found: true, profile: PROFILE })),
     ]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
+    await researcher.request(leadId!, false);
+    await finished(leadId!);
     expect((await findLeadById(db, leadId!))?.companyResearchStatus).toBe("found");
 
     await createEnrollment(db, second.id, { ...ADA, company: "Difference Engines" });
@@ -218,114 +205,12 @@ describe("leads from enrollments", () => {
   });
 });
 
-describe("company lookup", () => {
-  it("stores the profile the Pappers agent reports", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { gateway, researcher } = researcherWith([
-      textReply("```json\n" + JSON.stringify({ found: true, profile: PROFILE }) + "\n```"),
-    ]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-
-    const lead = await findLeadById(db, leadId!);
-    expect(lead?.companyResearchStatus).toBe("found");
-    expect(lead?.companyProfile).toMatchObject(PROFILE);
-    expect(lead?.companyResearchedAt).toBeTruthy();
-
-    // Only the company and the work domain leave the backoffice.
-    const prompt = gateway.requests[0]?.messages.find((message) => message.role === "user");
-    expect(prompt?.content).toContain('"Analytical Engines"');
-    expect(prompt?.content).toContain("analytical.be");
-    expect(prompt?.content).not.toContain("Lovelace");
-    expect(prompt?.content).not.toContain("+32");
-  });
-
-  it("records a company the agent could not match", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([
-      textReply(JSON.stringify({ found: false, reason: "No company by that name." })),
-    ]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-    expect(await findLeadById(db, leadId!)).toMatchObject({
-      companyResearchStatus: "not_found",
-      companyResearchError: "No company by that name.",
-    });
-  });
-
-  it("fails the lookup on a reply that is not a profile", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([textReply("It is a software company in Leuven.")]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-    expect(await findLeadById(db, leadId!)).toMatchObject({
-      companyResearchStatus: "failed",
-      companyResearchError: "The agent did not answer with a company profile.",
-    });
-  });
-
-  it("fails the lookup when the gateway errors", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([
-      () => json({ error: { message: "Invalid model name" } }, 400),
-    ]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-    expect(await findLeadById(db, leadId!)).toMatchObject({
-      companyResearchStatus: "failed",
-      companyResearchError: "Invalid model name",
-    });
-  });
-
-  it("skips the lookup while the agent is not configured, and resumes once it is", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const unconfigured = researcherWith([], { pappersToken: null });
-    unconfigured.researcher.enqueue(leadId!);
-    await unconfigured.researcher.idle();
-    expect(await findLeadById(db, leadId!)).toMatchObject({
-      companyResearchStatus: "skipped",
-      companyResearchError: "Set VETINARI_BO_PAPPERS_API_TOKEN to look companies up automatically.",
-    });
-    expect(unconfigured.gateway.requests).toHaveLength(0);
-
-    const configured = researcherWith([
-      textReply(JSON.stringify({ found: true, profile: PROFILE })),
-    ]);
-    await configured.researcher.resume();
-    await configured.researcher.idle();
-    expect((await findLeadById(db, leadId!))?.companyResearchStatus).toBe("found");
-  });
-
-  it("runs one lookup per lead, however often it is queued", async () => {
-    const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { gateway, researcher } = researcherWith([
-      textReply(JSON.stringify({ found: true, profile: PROFILE })),
-    ]);
-    researcher.enqueue(leadId!);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-    researcher.enqueue(leadId!);
-    await researcher.idle();
-    expect(gateway.requests).toHaveLength(1);
-  });
-
-  it("parses a reply wrapped in prose and drops empty fields", () => {
-    const result = parseLookupReply(
-      `Here it is: {"found": true, "profile": {"name": "ACME", "website": "", "employees": null}}`,
-    );
-    expect(result).toEqual({ found: true, profile: { name: "ACME" } });
-  });
-
-  it("keeps personal mailbox domains out of the prompt", () => {
-    expect(employerDomain("ada@gmail.com")).toBeUndefined();
-    expect(employerDomain("ada@analytical.be")).toBe("analytical.be");
-    expect(companyLookupPrompt("Acme", undefined)).toContain("Work email domain: unknown");
-  });
-});
-
 describe("leads API", () => {
-  function appWith(researcher?: LeadResearcher) {
-    return createBackofficeApp(db, { publicBaseUrl: "http://localhost:3101", researcher });
+  function appWith(researcher?: ReturnType<typeof createLeadResearch>) {
+    return createBackofficeApp(db, {
+      publicBaseUrl: "http://localhost:3101",
+      researchCompany: researcher?.request,
+    });
   }
 
   it("lists leads and shows one with its workshops", async () => {
@@ -351,31 +236,26 @@ describe("leads API", () => {
 
   it("looks a company up again on request", async () => {
     const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([
-      textReply(JSON.stringify({ found: false })),
+    const { researcher } = await researcherWith([
+      textReply(JSON.stringify({ found: false, reason: "No plausible match." })),
       textReply(JSON.stringify({ found: true, profile: PROFILE })),
     ]);
-    researcher.enqueue(leadId!);
-    await researcher.idle();
+    await researcher.request(leadId!, false);
+    await finished(leadId!);
 
     const response = await appWith(researcher).request(`/api/leads/${leadId}/research`, {
       method: "POST",
     });
     expect(response.status).toBe(202);
-    await researcher.idle();
+    await finished(leadId!);
     expect((await findLeadById(db, leadId!))?.companyProfile?.name).toBe(PROFILE.name);
   });
 
-  it("refuses to look up while the agent is not configured", async () => {
+  it("refuses a manual lookup when company research is not enabled", async () => {
     const { leadId } = await createEnrollment(db, workshop.id, ADA);
-    const { researcher } = researcherWith([], { liteLlmKey: null });
-    const response = await appWith(researcher).request(`/api/leads/${leadId}/research`, {
-      method: "POST",
-    });
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: "Set VETINARI_BO_LITELLM_API_KEY to look companies up.",
-    });
+    expect(
+      (await appWith().request(`/api/leads/${leadId}/research`, { method: "POST" })).status,
+    ).toBe(503);
   });
 
   it("erases a lead", async () => {

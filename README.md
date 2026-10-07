@@ -14,7 +14,8 @@ lucide icons, and a Hono server — on top of a small local SQLite database.
 | Build    | Vite 8, TypeScript 5 (strict, ESM, `NodeNext`)                    |
 | Server   | Hono 4 on `@hono/node-server`, two apps on two ports              |
 | Database | SQLite through Node's built-in `node:sqlite`, queried with Kysely |
-| LLM      | A local LiteLLM gateway (OpenAI-compatible), in Docker            |
+| Workflow | Pappers lookup followed by a company profile agent                |
+| LLM      | Vetinari's LiteLLM gateway                                        |
 
 The database differs from Vetinari on purpose: Vetinari runs PostgreSQL in Docker,
 while the backoffice only needs one local file. The query layer is still Kysely, so
@@ -22,6 +23,20 @@ the same migration and query style applies and a later move to PostgreSQL is a
 dialect swap rather than a rewrite.
 
 ## Getting started
+
+Use Node.js 22.13.0 or later and pnpm 12.4.2.
+
+VetinariBO installs its agent runtime from GitHub Packages. GitHub Packages
+requires authentication for npm installs, including public packages. Configure
+a classic GitHub token with `read:packages` in your user `~/.npmrc` (or the
+matching CI secret) before installing:
+
+```ini
+//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
+```
+
+Keep the token in your user or CI configuration; the repository `.npmrc` only
+routes the `@quinus-yj` scope to GitHub Packages.
 
 ```bash
 pnpm install
@@ -73,9 +88,9 @@ still wins over the file. The tests never read it.
 | `VETINARI_BO_PUBLIC_BASE_URL`   | `http://localhost:3101` | Origin used to build form links                   |
 | `VETINARI_BO_TRUST_PROXY`       | `false`                 | Trust `x-forwarded-for` when rate limiting        |
 | `VETINARI_BO_PROXY`             | `http://localhost:3100` | Vite dev proxy target; follows `VETINARI_BO_PORT` |
-| `VETINARI_BO_LITELLM_BASE_URL`  | `http://localhost:4000` | LiteLLM gateway the agents run through            |
-| `VETINARI_BO_LITELLM_API_KEY`   | _(unset)_               | Virtual key from the LiteLLM dashboard            |
-| `VETINARI_BO_LITELLM_MODEL`     | _(unset)_               | Model deployment the built-in agents use          |
+| `LITELLM_BASE_URL`              | `http://localhost:4000` | LiteLLM gateway the agents run through            |
+| `LITELLM_MASTER_KEY`            | _(unset)_               | Virtual key from the LiteLLM dashboard            |
+| `LITELLM_MODEL`                 | _(unset)_               | Provider-owned deployment alias                   |
 | `VETINARI_BO_PAPPERS_API_TOKEN` | _(unset)_               | Pappers International API token                   |
 | `LITELLM_UI_MASTER_KEY`         | _(unset)_               | Admin UI password for `pnpm litellm:up`           |
 | `LITELLM_PORT`                  | `4000`                  | Host port for `pnpm litellm:up`                   |
@@ -235,7 +250,7 @@ curl -X POST http://localhost:3100/api/workshops \
 Anyone who names their company on an enrollment form becomes a lead. The
 **Leads** section in the sidebar lists them; a lead's page shows what they filled
 in, the workshops they enrolled for (marked upcoming or taken place), and what
-the Pappers agent found about their company.
+the company research workflow found about their company.
 
 - **One lead per person.** Leads are matched by email address, so enrolling for
   a second workshop joins the existing lead and refreshes the details given. A
@@ -243,130 +258,125 @@ the Pappers agent found about their company.
   workshop; someone who never names a company never becomes a lead.
 - **Created with the enrollment.** The lead is written in the same transaction
   as the enrollment, so there is no enrollment without its lead or the reverse.
-- **The company is looked up in the background.** After the enrollment is
-  stored, the public app hands the lead to a `LeadResearcher`
-  (`src/leads/leadResearcher.ts`), which runs the
-  [Pappers agent](#pappers-company-researcher) with a fixed task: find the
-  company, fetch it, and answer with a JSON profile — name, registration number,
-  address, number of employees, what the company does, legal form, status, and a
-  short summary. The reply is validated with zod before it is stored; anything
-  else marks the lookup as failed. The attendee's redirect never waits for it.
-- **Only the company leaves the backoffice.** The agent receives the company
-  name as typed and the email domain, and the domain only when it is not a
-  personal mailbox such as `gmail.com`. Names, phone numbers, and full email
-  addresses are never sent to the model.
-- **Lookups run one at a time and survive restarts.** The status lives in the
-  lead row (`pending`, `running`, `found`, `not_found`, `failed`, `skipped`), and
-  the server queues any unfinished lookup on start. Leads that were `skipped`
-  because the agent was not configured are retried on the first start after it
-  is. **Look up again** on the lead page re-runs a lookup by hand.
-- **Changing company starts over.** If a lead enrolls again under another
-  company name, the old profile is cleared and a new lookup is queued.
+- **Company research starts after enrollment.** The server starts a native
+  workflow without delaying the attendee's redirect: fetch company data from
+  Pappers, then ask an agent to summarize that record as a structured profile.
+- **Only company information leaves the backoffice.** The workflow receives the
+  company name and a work email domain. Personal mailbox domains such as
+  `gmail.com`, attendee names, phone numbers, and full email addresses are omitted.
+- **Failures are visible and retried manually.** The lead page shows the error
+  and a **Retry lookup** button. Failed and unmatched lookups are not retried on
+  later enrollments. **Look up again** also refreshes a completed profile.
+- **Changing company starts over.** A changed company clears the previous
+  profile and starts a new workflow after enrollment. Each run has an ID, so an
+  old result cannot overwrite a changed company or a deleted lead.
 
-Each lookup costs Pappers credits and a few model calls — typically a search and
-one `get_company`, plus the `financials` section when the base record has no
-headcount.
+## Lead company research
 
-The public app does not import the researcher: `src/server/main.ts` passes it an
-`onEnrolled` callback, so the isolation boundary is unchanged.
+`src/workflows/companyResearch.ts` defines one native Mastra workflow with two
+steps, using Vetinari's `createAgent` and LiteLLM provider directly:
 
-## Agents
+1. **Lookup company.** Call the [Pappers REST API](https://www.pappers.in/api/documentation)
+   to search by company name, prefer a unique exact match (ignoring accents,
+   punctuation and common legal suffixes), then fetch that company's record.
+   A sole search result is passed to the agent to assess. Ambiguous results fail
+   with an error rather than selecting an arbitrary company. An empty search
+   returns `not_found` without a model call.
+2. **Summarize company.** Give the fetched record to a tool-free agent with
+   native `structuredOutput` and the existing Zod profile schema. Mastra's
+   `jsonPromptInjection: "auto"` includes the schema in the prompt when the
+   gateway model does not advertise native schema support. It describes
+   the company's business, headcount, address and identity in the expected
+   format, or reports that the supplied record does not plausibly match.
+   Invalid output fails the workflow; there is no prose-to-JSON parser.
 
-The **Agents** section in the sidebar lists the agents built into the backoffice.
-Agents are code, not data: each one lives in `src/agents`, with its instructions
-and the tools it may call, and is registered in `src/agents/registry.ts`. There
-is no way to add one from the UI. Open an agent to ask it something; the reply
-shows which tools it called. Runs are not stored.
+The lookup defaults to Belgium. A work domain ending in `.fr`, `.de`, `.es`,
+`.it`, `.nl`, `.ch`, `.lu`, `.no` or `.uk` selects that covered country's register.
+Every HTTP request has a 30-second timeout. The agent has a two-minute time
+budget and one model turn, with automatic retries disabled. If the base record
+has no workforce figure or range, the lookup fetches only the `financials`
+section. Large sections are capped before they reach the model.
 
-An agent that is missing a setting stays listed, marked **Needs setup**, and its
-page names the variables to set.
+`src/server/leadResearch.ts` connects workflow execution to the database and HTTP
+routes. `request(leadId)` starts a fresh run for a manual lookup;
+`request(leadId, false)` starts research after enrollment only when its status is
+`pending`. A duplicate request for a running lead returns `409`; accepted runs
+return `202`. The lead page polls while a run is active and displays the saved
+profile or error when it completes. Missing credentials are recorded as failed
+lookups so the server and enrollment form remain usable.
 
-### Pappers company researcher
+There is no queue scanner, automatic retry, persisted workflow snapshot, or
+restart recovery. Existing pending rows can be started manually from the lead
+page. An interrupted running lookup is not recovered after a process crash.
+During a normal shutdown, the server stops admitting requests and waits for
+active runs before closing the database.
 
-Answers questions about companies from the
-[Pappers International](https://www.pappers.in/api) register: Belgium by default,
-plus France, Germany, Spain, Italy, the UK, the Netherlands, Switzerland,
-Luxembourg, and Norway. It has two tools:
+The existing `company_research_run_id` column protects against late results. It
+stays internal and is omitted from client and public responses. Historical
+`skipped` statuses remain readable; new configuration errors use `failed`.
 
-| Tool               | Pappers endpoint  | Returns                                                                                                                       |
-| ------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `search_companies` | `GET /v1/search`  | Companies matching a name or number                                                                                           |
-| `get_company`      | `GET /v1/company` | One company, plus the sections it asks for: officers, financials, UBOs, shareholders, publications, documents, establishments |
+Configure `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`, `LITELLM_MODEL`, and
+`VETINARI_BO_PAPPERS_API_TOKEN` in `.env`. Model requests use Vetinari's shared
+LiteLLM gateway. The Pappers token is sent as a query parameter, as its API
+requires, and credentials are redacted from errors saved for the UI.
 
-Every Pappers request costs credits, so the agent is told to request only the
-sections a question needs, and a run is capped at eight model turns. Long
-sections are cut to the 25 most recent entries before the model reads them.
-
-It needs `VETINARI_BO_LITELLM_MODEL` and `VETINARI_BO_PAPPERS_API_TOKEN`. The token
-goes in the query string, as Pappers requires, so it is kept out of every error
-message and log line.
-
-Pappers also runs an official MCP server, but it only accepts OAuth logins from
-clients Pappers has registered (such as claude.ai), so a server-side agent
-cannot use it. The REST API serves the same data with a token.
-
-Every model request goes through a [LiteLLM](https://docs.litellm.ai/) gateway.
-Provider credentials and model deployments live in the gateway's dashboard, never
-in this repository, so the `model` of an agent is a LiteLLM deployment name.
+The public app receives an `onEnrolled` callback from `src/server/main.ts`; it
+imports neither the workflow nor any backoffice code.
 
 ### Share Vetinari's gateway
 
 The backoffice and Vetinari run side by side and share Vetinari's gateway on
-`localhost:4000`, which is already the default `VETINARI_BO_LITELLM_BASE_URL`.
+`localhost:4000`, which is already the default `LITELLM_BASE_URL`.
 Start it from the Vetinari repository (`pnpm litellm:up` there), then in its
 dashboard at <http://localhost:4000/ui/>:
 
 1. Make sure a provider and a model deployment exist, such as `gpt-4o-mini`.
 2. Create a virtual key for the backoffice only, so its spend is tracked and it
    can be revoked without touching Vetinari's key.
-3. Set that key as `VETINARI_BO_LITELLM_API_KEY` in `.env` and restart.
+3. Set that key as `LITELLM_MASTER_KEY` in `.env` and restart.
 
-Set `VETINARI_BO_LITELLM_MODEL` to one of its deployment names. The Agents page
-shows whether the gateway is configured and reachable, and which models it
-serves.
+Set `LITELLM_MODEL` to one of the gateway's deployment names.
 
 ### A separate gateway
 
-`infra/litellm` can also run a gateway for the backoffice alone, with its own
-Postgres. Vetinari's gateway already holds port 4000, so give this one another
-port in `.env`:
+`infra/litellm` can run a gateway for the backoffice alone, with its own
+Postgres. If Vetinari's gateway already holds port 4000, choose another port
+in `.env`:
 
 ```bash
 LITELLM_PORT=4001
-VETINARI_BO_LITELLM_BASE_URL=http://localhost:4001
+LITELLM_BASE_URL=http://localhost:4001
 LITELLM_UI_MASTER_KEY=<choose-a-local-secret>
 ```
 
 ```bash
-pnpm litellm:up         # gateway on 127.0.0.1:$LITELLM_PORT
-pnpm litellm:health
+pnpm litellm:up         # start the gateway
+pnpm litellm:health     # check gateway status and liveness
+pnpm litellm:logs       # follow gateway logs
+pnpm litellm:down       # stop it; keep dashboard data
 ```
 
-Its dashboard is at `http://localhost:4001/ui/`; sign in as `admin` with
-`LITELLM_UI_MASTER_KEY`. `pnpm litellm:logs` follows the gateway log and
-`pnpm litellm:down` stops it.
+Open `http://localhost:4001/ui/` and sign in as `admin` with
+`LITELLM_UI_MASTER_KEY`. Create a model deployment and an application virtual
+key, then set `LITELLM_MODEL` and `LITELLM_MASTER_KEY` for the workflow.
 
 ## HTTP API
 
 Backoffice (`127.0.0.1:3100`):
 
-| Method   | Path                                           | Purpose                                                |
-| -------- | ---------------------------------------------- | ------------------------------------------------------ |
-| `GET`    | `/health`                                      | Liveness probe                                         |
-| `GET`    | `/api/workshops`                               | List workshops, soonest first                          |
-| `GET`    | `/api/workshops/:id`                           | One workshop, with its form link and seat counts       |
-| `POST`   | `/api/workshops`                               | Create a workshop; `400` carries field-level issues    |
-| `GET`    | `/api/workshops/:id/enrollments`               | Who enrolled                                           |
-| `GET`    | `/api/workshops/:id/enrollments.csv`           | Enrollments as CSV                                     |
-| `DELETE` | `/api/workshops/:id/enrollments/:enrollmentId` | Remove one enrollee                                    |
-| `GET`    | `/api/leads`                                   | List leads, newest first, with their workshop count    |
-| `GET`    | `/api/leads/:id`                               | One lead, with its company profile and workshops       |
-| `POST`   | `/api/leads/:id/research`                      | Look the company up again; `503` until configured      |
-| `DELETE` | `/api/leads/:id`                               | Erase a lead and all of its enrollments                |
-| `GET`    | `/api/agents`                                  | List the built-in agents                               |
-| `GET`    | `/api/agents/:id`                              | One agent, with its instructions and tools             |
-| `POST`   | `/api/agents/:id/runs`                         | Run a prompt; `503` until configured, `502` on failure |
-| `GET`    | `/api/gateway`                                 | LiteLLM configuration, reachability, and models        |
+| Method   | Path                                           | Purpose                                                 |
+| -------- | ---------------------------------------------- | ------------------------------------------------------- |
+| `GET`    | `/health`                                      | Liveness probe                                          |
+| `GET`    | `/api/workshops`                               | List workshops, soonest first                           |
+| `GET`    | `/api/workshops/:id`                           | One workshop, with its form link and seat counts        |
+| `POST`   | `/api/workshops`                               | Create a workshop; `400` carries field-level issues     |
+| `GET`    | `/api/workshops/:id/enrollments`               | Who enrolled                                            |
+| `GET`    | `/api/workshops/:id/enrollments.csv`           | Enrollments as CSV                                      |
+| `DELETE` | `/api/workshops/:id/enrollments/:enrollmentId` | Remove one enrollee                                     |
+| `GET`    | `/api/leads`                                   | List leads, newest first, with their workshop count     |
+| `GET`    | `/api/leads/:id`                               | One lead, with its company profile and workshops        |
+| `POST`   | `/api/leads/:id/research`                      | Start a workflow; `202` accepted, `409` already running |
+| `DELETE` | `/api/leads/:id`                               | Erase a lead and all of its enrollments                 |
 
 Any other path serves the SPA shell.
 
@@ -388,13 +398,13 @@ Everything else is a 404.
 src/                      servers and database
   contracts/              zod schemas shared by the API, the form, and the CLI
   db/                     Kysely setup, node:sqlite dialect, migrations, repositories
-  agents/                 built-in agents, their tools, and the tool-calling loop
-  leads/                  the background queue that looks up each lead's company
-  llm/                    fetch client for the LiteLLM gateway
+  workflows/              native company lookup and profile workflow
+  tools/pappers/          Pappers REST client and response size limits
+  leads/                  employer domain filtering
   server/
     config.ts             ports, bind addresses, and the public base URL
     shared/spa/           static asset serving, used by both apps
-    backoffice/           the private app: workshops, enrollments, leads, and agents
+    backoffice/           the private app: workshops, enrollments, and leads
     public/               the public app: the hosted enrollment form only
     main.ts               starts both servers
   scripts/                command-line entry points
@@ -404,7 +414,7 @@ app/src/                  the backoffice SPA
   application/            TanStack Query keys and hooks
   presentation/           routes, shell, shared UI, and feature pages
 public-web/styles.css     Tailwind entry for the server-rendered form
-infra/litellm/            Docker Compose setup for the local LiteLLM gateway
+infra/litellm/            optional local LiteLLM gateway with Postgres
 test/                     Vitest suites, including the isolation boundary
 ```
 

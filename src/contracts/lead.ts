@@ -3,12 +3,12 @@ import { z } from "zod";
 /**
  * Where the automatic company lookup for a lead stands.
  *
- * - `pending`: queued, not started yet.
- * - `running`: the Pappers agent is working on it.
+ * - `pending`: not started yet.
+ * - `running`: the company research workflow is working on it.
  * - `found`: a company was matched; `company` holds its profile.
  * - `not_found`: the agent could not match the company in the register.
  * - `failed`: the run errored; `companyResearchError` says why.
- * - `skipped`: the agent is not configured, so nothing was attempted.
+ * - `skipped`: legacy status for an unconfigured lookup.
  */
 export const COMPANY_RESEARCH_STATUSES = [
   "pending",
@@ -29,7 +29,7 @@ const optionalString = (max: number) =>
   );
 
 /**
- * What the Pappers agent reports about a lead's company.
+ * What the company profile agent reports about a lead's company.
  *
  * The agent answers in JSON, and this schema is what makes that answer safe to
  * store: anything it cannot parse is treated as a failed lookup, not stored.

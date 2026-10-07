@@ -29,7 +29,7 @@ export function CompanyCard({ lead }: { lead: LeadDetail }) {
     <Card>
       <CardHeader
         title="Company"
-        description="Looked up in the Pappers register by the Pappers agent."
+        description="Company data from Pappers, summarized for your next call."
         actions={
           <div className="flex items-center gap-2">
             <ResearchStatusBadge status={lead.companyResearchStatus} />
@@ -41,13 +41,19 @@ export function CompanyCard({ lead }: { lead: LeadDetail }) {
               onClick={() => research.mutate()}
             >
               <RefreshCw className="size-3.5" aria-hidden="true" />
-              <span>Look up again</span>
+              <span>
+                {lead.companyResearchStatus === "failed" ? "Retry lookup" : "Look up again"}
+              </span>
             </Button>
           </div>
         }
       />
       <div className="space-y-4 px-5 py-4">
-        {research.error && <p className="text-sm text-destructive">{research.error.message}</p>}
+        {research.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {research.error.message}
+          </p>
+        )}
         <ResearchMessage lead={lead} />
         {lead.companyProfile && <ProfileDetails profile={lead.companyProfile} />}
         {lead.companyResearchedAt && !inProgress && (
@@ -64,6 +70,11 @@ function ResearchMessage({ lead }: { lead: LeadDetail }) {
   const company = <span className="font-medium text-foreground">{lead.company}</span>;
   switch (lead.companyResearchStatus) {
     case "pending":
+      return (
+        <p className="text-sm text-muted-foreground">
+          {company} has not been looked up yet. Use Look up again to start.
+        </p>
+      );
     case "running":
       return (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -78,20 +89,20 @@ function ResearchMessage({ lead }: { lead: LeadDetail }) {
     case "not_found":
       return (
         <p className="text-sm text-muted-foreground">
-          The agent could not match {company} in the register.
+          No company matched {company} in the register.
           {lead.companyResearchError && ` ${lead.companyResearchError}`}
         </p>
       );
     case "failed":
       return (
-        <p className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           The lookup failed: {lead.companyResearchError ?? "unknown error"}
         </p>
       );
     case "skipped":
       return (
         <p className="text-sm text-muted-foreground">
-          The Pappers agent is not set up, so {company} was not looked up.
+          Company research is not set up, so {company} was not looked up.
           {lead.companyResearchError && ` ${lead.companyResearchError}`}
         </p>
       );
