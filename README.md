@@ -92,6 +92,8 @@ still wins over the file. The tests never read it.
 | `LITELLM_MASTER_KEY`            | _(unset)_               | Virtual key from the LiteLLM dashboard            |
 | `LITELLM_MODEL`                 | _(unset)_               | Provider-owned deployment alias                   |
 | `VETINARI_BO_PAPPERS_API_TOKEN` | _(unset)_               | Pappers International API token                   |
+| `LITELLM_UI_MASTER_KEY`         | _(unset)_               | Admin UI password for `pnpm litellm:up`           |
+| `LITELLM_PORT`                  | `4000`                  | Host port for `pnpm litellm:up`                   |
 
 ## Theming
 
@@ -335,6 +337,29 @@ dashboard at <http://localhost:4000/ui/>:
 
 Set `LITELLM_MODEL` to one of the gateway's deployment names.
 
+### A separate gateway
+
+`infra/litellm` can run a gateway for the backoffice alone, with its own
+Postgres. If Vetinari's gateway already holds port 4000, choose another port
+in `.env`:
+
+```bash
+LITELLM_PORT=4001
+LITELLM_BASE_URL=http://localhost:4001
+LITELLM_UI_MASTER_KEY=<choose-a-local-secret>
+```
+
+```bash
+pnpm litellm:up         # start the gateway
+pnpm litellm:health     # check gateway status and liveness
+pnpm litellm:logs       # follow gateway logs
+pnpm litellm:down       # stop it; keep dashboard data
+```
+
+Open `http://localhost:4001/ui/` and sign in as `admin` with
+`LITELLM_UI_MASTER_KEY`. Create a model deployment and an application virtual
+key, then set `LITELLM_MODEL` and `LITELLM_MASTER_KEY` for the workflow.
+
 ## HTTP API
 
 Backoffice (`127.0.0.1:3100`):
@@ -389,6 +414,7 @@ app/src/                  the backoffice SPA
   application/            TanStack Query keys and hooks
   presentation/           routes, shell, shared UI, and feature pages
 public-web/styles.css     Tailwind entry for the server-rendered form
+infra/litellm/            optional local LiteLLM gateway with Postgres
 test/                     Vitest suites, including the isolation boundary
 ```
 
