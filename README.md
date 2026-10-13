@@ -78,22 +78,22 @@ Copy `.env.example` to `.env` to override the defaults. The server, `pnpm db:mig
 and `pnpm db:add-workshop` load it on start; a variable exported in your shell
 still wins over the file. The tests never read it.
 
-| Variable                        | Default                 | Purpose                                           |
-| ------------------------------- | ----------------------- | ------------------------------------------------- |
-| `VETINARI_BO_DATABASE_FILE`     | `./data/vetinari-bo.db` | Path to the local SQLite file                     |
-| `VETINARI_BO_PORT`              | `3100`                  | Backoffice port                                   |
-| `VETINARI_BO_HOST`              | `127.0.0.1`             | Backoffice bind address                           |
-| `VETINARI_BO_PUBLIC_PORT`       | `3101`                  | Enrollment form port                              |
-| `VETINARI_BO_PUBLIC_HOST`       | `0.0.0.0`               | Enrollment form bind address                      |
-| `VETINARI_BO_PUBLIC_BASE_URL`   | `http://localhost:3101` | Origin used to build form links                   |
-| `VETINARI_BO_TRUST_PROXY`       | `false`                 | Trust `x-forwarded-for` when rate limiting        |
-| `VETINARI_BO_PROXY`             | `http://localhost:3100` | Vite dev proxy target; follows `VETINARI_BO_PORT` |
-| `LITELLM_BASE_URL`              | `http://localhost:4000` | LiteLLM gateway the agents run through            |
-| `LITELLM_MASTER_KEY`            | _(unset)_               | Virtual key from the LiteLLM dashboard            |
-| `LITELLM_MODEL`                 | _(unset)_               | Provider-owned deployment alias                   |
-| `VETINARI_BO_PAPPERS_API_TOKEN` | _(unset)_               | Pappers International API token                   |
-| `LITELLM_UI_MASTER_KEY`         | _(unset)_               | Admin UI password for `pnpm litellm:up`           |
-| `LITELLM_PORT`                  | `4000`                  | Host port for `pnpm litellm:up`                   |
+| Variable                         | Default                 | Purpose                                           |
+| -------------------------------- | ----------------------- | ------------------------------------------------- |
+| `VETINARI_BO_DATABASE_FILE`      | `./data/vetinari-bo.db` | Path to the local SQLite file                     |
+| `VETINARI_BO_PORT`               | `3100`                  | Backoffice port                                   |
+| `VETINARI_BO_HOST`               | `127.0.0.1`             | Backoffice bind address                           |
+| `VETINARI_BO_PUBLIC_PORT`        | `3101`                  | Enrollment form port                              |
+| `VETINARI_BO_PUBLIC_HOST`        | `0.0.0.0`               | Enrollment form bind address                      |
+| `VETINARI_BO_PUBLIC_BASE_URL`    | `http://localhost:3101` | Origin used to build form links                   |
+| `VETINARI_BO_TRUST_PROXY`        | `false`                 | Trust `x-forwarded-for` when rate limiting        |
+| `VETINARI_BO_PROXY`              | `http://localhost:3100` | Vite dev proxy target; follows `VETINARI_BO_PORT` |
+| `LITELLM_BASE_URL`               | `http://localhost:4000` | LiteLLM gateway the agents run through            |
+| `LITELLM_MASTER_KEY`             | _(unset)_               | Virtual key from the LiteLLM dashboard            |
+| `LITELLM_MODEL`                  | _(unset)_               | Provider-owned deployment alias                   |
+| `VETINARI_BO_PAPPERS_MCP_SERVER` | `Pappers_MCP`           | Pappers MCP server name in LiteLLM                |
+| `LITELLM_UI_MASTER_KEY`          | _(unset)_               | Admin UI password for `pnpm litellm:up`           |
+| `LITELLM_PORT`                   | `4000`                  | Host port for `pnpm litellm:up`                   |
 
 ## Theming
 
@@ -276,11 +276,12 @@ the company research workflow found about their company.
 `src/workflows/companyResearch.ts` defines one native Mastra workflow with two
 steps, using Vetinari's `createAgent` and LiteLLM provider directly:
 
-1. **Lookup company.** Call the [Pappers REST API](https://www.pappers.in/api/documentation)
-   to search by company name, prefer a unique exact match (ignoring accents,
-   punctuation and common legal suffixes), then fetch that company's record.
-   A sole search result is passed to the agent to assess. Ambiguous results fail
-   with an error rather than selecting an arbitrary company. An empty search
+1. **Lookup company.** Call the Pappers MCP server's `entity-resolver` tool
+   through the LiteLLM gateway. It picks the company that best matches the name
+   and returns its record in one call, for one credit; `entity-search` would
+   bill a credit per result. The agent receives Pappers' confidence score and
+   whether the record's name or a secondary name equals the company name
+   (ignoring accents, punctuation and common legal suffixes). An unresolved name
    returns `not_found` without a model call.
 2. **Summarize company.** Give the fetched record to a tool-free agent with
    native `structuredOutput` and the existing Zod profile schema. Mastra's
@@ -290,12 +291,12 @@ steps, using Vetinari's `createAgent` and LiteLLM provider directly:
    format, or reports that the supplied record does not plausibly match.
    Invalid output fails the workflow; there is no prose-to-JSON parser.
 
-The lookup defaults to Belgium. A work domain ending in `.fr`, `.de`, `.es`,
-`.it`, `.nl`, `.ch`, `.lu`, `.no` or `.uk` selects that covered country's register.
-Every HTTP request has a 30-second timeout. The agent has a two-minute time
-budget and one model turn, with automatic retries disabled. If the base record
-has no workforce figure or range, the lookup fetches only the `financials`
-section. Large sections are capped before they reach the model.
+The register searched is the one the MCP server covers: its URL in LiteLLM
+selects the country (`https://mcp.pappers.in/BE` for Belgium). Every tool call
+has a 30-second timeout. The agent has a two-minute time
+budget and one model turn, with automatic retries disabled. Large sections are
+capped before they reach the model, and any `notes` Pappers adds as
+instructions for chat assistants are dropped.
 
 `src/server/leadResearch.ts` connects workflow execution to the database and HTTP
 routes. `request(leadId)` starts a fresh run for a manual lookup;
@@ -315,10 +316,14 @@ The existing `company_research_run_id` column protects against late results. It
 stays internal and is omitted from client and public responses. Historical
 `skipped` statuses remain readable; new configuration errors use `failed`.
 
-Configure `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`, `LITELLM_MODEL`, and
-`VETINARI_BO_PAPPERS_API_TOKEN` in `.env`. Model requests use Vetinari's shared
-LiteLLM gateway. The Pappers token is sent as a query parameter, as its API
-requires, and credentials are redacted from errors saved for the UI.
+Configure `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`, and `LITELLM_MODEL` in
+`.env`. Model requests and Pappers lookups both go through the LiteLLM gateway,
+so the backoffice holds no Pappers credentials. Register Pappers in LiteLLM as an
+MCP server (by default named `Pappers_MCP`, URL `https://mcp.pappers.in/BE`,
+transport HTTP, auth "Bearer token" with your Pappers API token), and let the
+`LITELLM_MASTER_KEY` key use it. The workflow calls its tools over LiteLLM's
+`/mcp-rest/tools/call` endpoint. The gateway key is redacted from errors saved
+for the UI.
 
 The public app receives an `onEnrolled` callback from `src/server/main.ts`; it
 imports neither the workflow nor any backoffice code.
@@ -399,7 +404,7 @@ src/                      servers and database
   contracts/              zod schemas shared by the API, the form, and the CLI
   db/                     Kysely setup, node:sqlite dialect, migrations, repositories
   workflows/              native company lookup and profile workflow
-  tools/pappers/          Pappers REST client and response size limits
+  tools/pappers/          Pappers MCP client (via LiteLLM) and response size limits
   leads/                  employer domain filtering
   server/
     config.ts             ports, bind addresses, and the public base URL

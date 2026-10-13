@@ -55,7 +55,7 @@ export function createLeadResearch(
         let message = getErrorFromUnknown(error, {
           fallbackMessage: "Company lookup failed. Please retry.",
         }).message;
-        for (const secret of [config.pappersApiToken, process.env.LITELLM_MASTER_KEY]) {
+        for (const secret of [config.pappers?.apiKey, process.env.LITELLM_MASTER_KEY]) {
           if (secret)
             message = message
               .replaceAll(secret, "[redacted]")

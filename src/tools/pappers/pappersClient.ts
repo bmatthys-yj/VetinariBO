@@ -1,13 +1,16 @@
 /**
- * A minimal client for the Pappers International REST API.
+ * A minimal client for the Pappers MCP server, reached through the LiteLLM
+ * gateway's REST bridge for MCP tools. The gateway holds the Pappers
+ * credentials, so this process only needs its LiteLLM key.
  *
- * Pappers bills credits per request, so the client makes exactly the requests
- * it is asked for and never retries on its own.
+ * Pappers bills credits per tool call (search even per result), so the client
+ * makes exactly the calls it is asked for and never retries on its own.
  */
 
-export const PAPPERS_API_ROOT = "https://api.pappers.in/v1";
+/** The MCP server name LiteLLM registers Pappers under, unless configured. */
+export const DEFAULT_PAPPERS_MCP_SERVER = "Pappers_MCP";
 
-/** A Pappers request that failed. The message never contains the API token. */
+/** A Pappers request that failed. The message never contains the gateway key. */
 export class PappersError extends Error {
   readonly status: number | undefined;
 
@@ -20,88 +23,113 @@ export class PappersError extends Error {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+export interface PappersGatewayConfig {
+  /** LiteLLM origin. A trailing `/v1`, as the model provider accepts, is ignored. */
+  readonly baseUrl: string;
+  /** LiteLLM key allowed to use the Pappers MCP server. */
+  readonly apiKey: string;
+  /** MCP server id, name, or alias in LiteLLM. */
+  readonly server?: string;
+}
+
 export class PappersClient {
-  private readonly apiToken: string;
+  private readonly endpoint: string;
+  private readonly apiKey: string;
+  private readonly server: string;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(apiToken: string, fetchImpl: typeof fetch = fetch) {
-    this.apiToken = apiToken;
+  constructor(config: PappersGatewayConfig, fetchImpl: typeof fetch = fetch) {
+    const root = config.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+    this.endpoint = `${root}/mcp-rest/tools/call`;
+    this.apiKey = config.apiKey;
+    this.server = config.server?.trim() || DEFAULT_PAPPERS_MCP_SERVER;
     this.fetchImpl = fetchImpl;
   }
 
-  /** Companies matching a name or number in one country. */
-  searchCompanies(params: {
-    countryCode: string;
-    query: string;
-    page?: number;
-    perPage?: number;
-    signal?: AbortSignal;
-  }): Promise<unknown> {
-    return this.get(
-      "/search",
-      {
-        country_code: params.countryCode,
-        q: params.query,
-        page: String(params.page ?? 1),
-        per_page: String(params.perPage ?? 10),
-      },
-      params.signal,
-    );
+  /**
+   * The company Pappers resolves a name to, with its default record sections,
+   * in one tool call (one credit). `null` when nothing matches.
+   */
+  resolveCompany(params: { name: string; signal?: AbortSignal }): Promise<unknown> {
+    return this.callTool("entity-resolver", { company_name: params.name }, params.signal);
   }
 
-  /** One company by its registration number, with the requested sections. */
-  getCompany(params: {
-    countryCode: string;
-    companyNumber: string;
-    fields?: readonly "financials"[];
-    signal?: AbortSignal;
-  }): Promise<unknown> {
-    return this.get(
-      "/company",
-      {
-        country_code: params.countryCode,
-        company_number: params.companyNumber,
-        ...(params.fields && params.fields.length > 0 ? { fields: params.fields.join(",") } : {}),
-      },
-      params.signal,
-    );
-  }
-
-  private async get(
-    path: string,
-    params: Record<string, string>,
+  private async callTool(
+    name: string,
+    args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    // Pappers takes the token as a query parameter, so the URL is a secret:
-    // it must never end up in an error message or a log line.
-    const url = `${PAPPERS_API_ROOT}${path}?${new URLSearchParams({
-      ...params,
-      api_token: this.apiToken,
-    })}`;
-
     let response: Response;
     try {
-      response = await this.fetchImpl(url, {
-        headers: { accept: "application/json" },
+      response = await this.fetchImpl(this.endpoint, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${this.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ name, server_id: this.server, arguments: args }),
         signal: signal
           ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
           : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw new PappersError("Could not reach the Pappers API.");
+      throw new PappersError("Could not reach the LiteLLM gateway for Pappers.");
     }
 
-    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+      error?: unknown;
+      isError?: unknown;
+      content?: unknown;
+    } | null;
     if (!response.ok) {
-      const message =
-        typeof body?.error === "string" ? body.error.replaceAll(this.apiToken, "[redacted]") : null;
       throw new PappersError(
-        message ?? `The Pappers API answered with status ${response.status}.`,
+        this.redact(gatewayMessage(body)) ??
+          `The LiteLLM gateway answered with status ${response.status}.`,
         response.status,
       );
     }
-    if (!body || typeof body !== "object")
-      throw new PappersError("The Pappers API returned invalid company data.");
-    return body;
+
+    const text = Array.isArray(body?.content)
+      ? body.content
+          .map((part: { type?: unknown; text?: unknown }) =>
+            part?.type === "text" && typeof part.text === "string" ? part.text : "",
+          )
+          .join("")
+      : undefined;
+    if (text === undefined) throw new PappersError("The Pappers MCP server returned no content.");
+    if (body?.isError === true) {
+      throw new PappersError(this.redact(text.trim()) || "The Pappers MCP tool failed.");
+    }
+    let result: unknown;
+    try {
+      result = JSON.parse(text) as unknown;
+    } catch {
+      throw new PappersError("The Pappers MCP server returned invalid company data.");
+    }
+    // Pappers reports some failures, such as running out of credits, as a
+    // successful tool call whose result is `{ "error": "..." }`.
+    const error = (result as { error?: unknown } | null)?.error;
+    if (typeof error === "string") throw new PappersError(this.redact(error) ?? error);
+    return result;
   }
+
+  private redact(message: string | null): string | null {
+    return message && this.apiKey ? message.replaceAll(this.apiKey, "[redacted]") : message;
+  }
+}
+
+/** The error text in a LiteLLM error body, which nests it differently per route. */
+function gatewayMessage(body: { detail?: unknown; error?: unknown } | null): string | null {
+  const candidates = [body?.detail, body?.error];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") return candidate;
+    if (candidate && typeof candidate === "object") {
+      const nested = candidate as { message?: unknown; error?: { message?: unknown } };
+      if (typeof nested.message === "string") return nested.message;
+      if (typeof nested.error?.message === "string") return nested.error.message;
+    }
+  }
+  return null;
 }

@@ -1,3 +1,5 @@
+import type { PappersGatewayConfig } from "../tools/pappers/pappersClient.js";
+
 /** Runtime configuration shared by both servers. */
 
 function readPort(value: string | undefined, fallback: number): number {
@@ -23,8 +25,11 @@ export interface ServerConfig {
   readonly publicPort: number;
   /** Origin the hosted enrollment form is reachable at, used to build links. */
   readonly publicBaseUrl: string;
-  /** Pappers International API token, used by the Pappers agent. */
-  readonly pappersApiToken?: string;
+  /**
+   * LiteLLM gateway that serves the Pappers MCP server. The gateway holds the
+   * Pappers credentials; missing values make company lookups fail.
+   */
+  readonly pappers: Partial<PappersGatewayConfig>;
 }
 
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -38,7 +43,11 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       env.VETINARI_BO_PUBLIC_BASE_URL,
       `http://localhost:${publicPort}`,
     ).replace(/\/+$/, ""),
-    pappersApiToken: env.VETINARI_BO_PAPPERS_API_TOKEN?.trim(),
+    pappers: {
+      baseUrl: env.LITELLM_BASE_URL?.trim(),
+      apiKey: env.LITELLM_MASTER_KEY?.trim(),
+      server: env.VETINARI_BO_PAPPERS_MCP_SERVER?.trim(),
+    },
   };
 }
 

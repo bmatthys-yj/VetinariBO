@@ -77,14 +77,17 @@ function textReply(text: string): FakeModelReply {
 async function researcherWith(replies: FakeModelReply[]) {
   const gateway = fakeAgentModel(replies);
   const researcher = createLeadResearch(db, {
-    pappersApiToken: "pappers-token",
+    pappers: { baseUrl: "https://gateway.test", apiKey: "gateway-key" },
     model: gateway.model,
-    fetch: async (input) =>
-      json(
-        new URL(String(input)).pathname.endsWith("/search")
-          ? { results: [{ name: "ANALYTICAL ENGINES NV", company_number: "0123.456.789" }] }
-          : { name: "ANALYTICAL ENGINES NV", company_number: "0123.456.789", workforce: 42 },
-      ),
+    fetch: async () => {
+      const company = {
+        name: "ANALYTICAL ENGINES NV",
+        entity_number: "0123.456.789",
+        workforce: 42,
+      };
+      const result = { entreprise: company, fiabilite: "3/3" };
+      return json({ content: [{ type: "text", text: JSON.stringify(result) }] });
+    },
   });
   researchers.push(researcher);
   return { gateway, researcher };
