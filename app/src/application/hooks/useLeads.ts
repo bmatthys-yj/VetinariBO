@@ -33,7 +33,7 @@ export function useLead(leadId: string) {
   return { lead: query.data ?? null, isLoading: query.isLoading, error: query.error };
 }
 
-/** Look a lead's company up again with the Pappers agent. */
+/** Look a lead's company up again with the company research workflow. */
 export function useResearchLead(leadId: string) {
   const queryClient = useQueryClient();
   return useMutation<LeadDetail, Error, void>({

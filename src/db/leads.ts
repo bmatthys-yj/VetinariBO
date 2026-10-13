@@ -1,3 +1,4 @@
+import type { Selectable } from "kysely";
 import { randomUUID } from "node:crypto";
 import type { EnrollmentInput } from "../contracts/enrollment.js";
 import {
@@ -22,7 +23,7 @@ function parseProfile(json: string | null): CompanyProfile | undefined {
   }
 }
 
-function toLead(row: LeadTable): Lead {
+function toLead(row: Selectable<LeadTable>): Lead {
   return {
     id: row.id,
     firstName: row.first_name,
@@ -115,6 +116,7 @@ export async function upsertLeadFromEnrollment(
       ...(companyChanged
         ? {
             company_research_status: "pending",
+            company_research_run_id: null,
             company_research_error: null,
             company_researched_at: null,
             company_profile: null,
@@ -177,79 +179,69 @@ export async function findLeadById(db: BackofficeDatabase, id: string): Promise<
   };
 }
 
-/** What the company lookup needs to know about a lead, and nothing more. */
-export interface LeadResearchSubject {
+/** A claimed job, with the identity used to reject late results. */
+export interface LeadResearchClaim {
   readonly id: string;
+  readonly runId: string;
   readonly company: string;
   readonly email: string;
-  readonly position?: string;
-  readonly status: CompanyResearchStatus;
 }
 
-export async function findLeadResearchSubject(
+/** Start one lookup for a lead; completed rows only run again on an explicit retry. */
+export async function claimLeadResearch(
   db: BackofficeDatabase,
   id: string,
-): Promise<LeadResearchSubject | null> {
-  const row = await db
-    .selectFrom("leads")
-    .select(["id", "company", "email", "position", "company_research_status"])
-    .where("id", "=", id)
-    .executeTakeFirst();
-  if (!row) return null;
-  return {
-    id: row.id,
-    company: row.company,
-    email: row.email,
-    position: row.position ?? undefined,
-    status: row.company_research_status as CompanyResearchStatus,
-  };
+  retry: boolean,
+): Promise<LeadResearchClaim | "running" | "not_found" | "complete"> {
+  return db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("leads")
+      .select(["id", "company", "email", "company_research_status"])
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!row) return "not_found";
+    if (row.company_research_status === "running") return "running";
+    if (!retry && row.company_research_status !== "pending") return "complete";
+    const runId = randomUUID();
+    await trx
+      .updateTable("leads")
+      .set({
+        company_research_status: "running",
+        company_research_run_id: runId,
+        company_research_error: null,
+        company_profile: null,
+        updated_at: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .execute();
+    return { id: row.id, company: row.company, email: row.email, runId };
+  });
 }
 
-/** Leads whose company lookup is in one of `statuses`, oldest first. */
-export async function listLeadIdsByResearchStatus(
-  db: BackofficeDatabase,
-  statuses: readonly CompanyResearchStatus[],
-): Promise<string[]> {
-  if (statuses.length === 0) return [];
-  const rows = await db
-    .selectFrom("leads")
-    .select("id")
-    .where("company_research_status", "in", statuses)
-    .orderBy("created_at", "asc")
-    .execute();
-  return rows.map((row) => row.id);
-}
-
-/** The outcome of one step of a company lookup. */
-export type LeadResearchUpdate =
-  | { readonly status: "pending" | "running" }
+export type LeadResearchOutcome =
   | { readonly status: "found"; readonly profile: CompanyProfile }
   | { readonly status: "not_found" | "failed" | "skipped"; readonly error?: string };
 
-/**
- * Record where a lead's company lookup stands.
- *
- * Starting a lookup keeps the previous profile visible; only a finished lookup
- * replaces it.
- */
-export async function updateLeadResearch(
+/** A stale or deleted claim cannot write a result or undo a newer request. */
+export async function finishLeadResearch(
   db: BackofficeDatabase,
-  id: string,
-  update: LeadResearchUpdate,
+  claim: LeadResearchClaim,
+  outcome: LeadResearchOutcome,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const finished =
-    update.status === "pending" || update.status === "running"
-      ? {}
-      : {
-          company_researched_at: now,
-          company_profile: update.status === "found" ? JSON.stringify(update.profile) : null,
-          company_research_error: "error" in update ? (update.error ?? null) : null,
-        };
   await db
     .updateTable("leads")
-    .set({ company_research_status: update.status, updated_at: now, ...finished })
-    .where("id", "=", id)
+    .set({
+      company_research_status: outcome.status,
+      company_research_run_id: null,
+      updated_at: now,
+      company_researched_at: now,
+      company_profile: outcome.status === "found" ? JSON.stringify(outcome.profile) : null,
+      company_research_error: "error" in outcome ? (outcome.error ?? null) : null,
+    })
+    .where("id", "=", claim.id)
+    .where("company_research_run_id", "=", claim.runId)
+    .where("company_research_status", "=", "running")
     .execute();
 }
 

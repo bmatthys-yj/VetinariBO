@@ -7,8 +7,6 @@ import { WorkshopsPage } from "../features/workshops/WorkshopsPage";
 import { WorkshopDetailPage } from "../features/workshops/WorkshopDetailPage";
 import { LeadsPage } from "../features/leads/LeadsPage";
 import { LeadDetailPage } from "../features/leads/LeadDetailPage";
-import { AgentsPage } from "../features/agents/AgentsPage";
-import { AgentDetailPage } from "../features/agents/AgentDetailPage";
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -60,29 +58,10 @@ const leadDetailRoute = createRoute({
   component: LeadDetailPage,
 });
 
-const agentsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/agents",
-});
-
-const agentsIndexRoute = createRoute({
-  getParentRoute: () => agentsRoute,
-  path: "/",
-  component: AgentsPage,
-});
-
-/** Agent detail: its instructions and a prompt box to run it. */
-const agentDetailRoute = createRoute({
-  getParentRoute: () => agentsRoute,
-  path: "$agentId",
-  component: AgentDetailPage,
-});
-
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   workshopsRoute.addChildren([workshopsIndexRoute, workshopDetailRoute]),
   leadsRoute.addChildren([leadsIndexRoute, leadDetailRoute]),
-  agentsRoute.addChildren([agentsIndexRoute, agentDetailRoute]),
 ]);
 
 export function createAppRouter(context: RouterContext, history?: RouterHistory) {

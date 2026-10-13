@@ -8,4 +8,3 @@ export {
   fetchWorkshops,
 } from "./workshopsApi";
 export { deleteLead, fetchLead, fetchLeads, researchLead } from "./leadsApi";
-export { fetchAgent, fetchAgents, fetchGatewayStatus, runAgent } from "./agentsApi";

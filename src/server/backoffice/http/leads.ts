@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import { deleteLead, findLeadById, listLeads } from "../../../db/leads.js";
 import type { BackofficeDatabase } from "../../../db/index.js";
-import type { LeadResearcher } from "../../../leads/leadResearcher.js";
+import type { createLeadResearch } from "../../leadResearch.js";
 
 /** Leads created from enrollments, and their company lookups. */
-export function createLeadsRouter(db: BackofficeDatabase, researcher?: LeadResearcher): Hono {
+export function createLeadsRouter(
+  db: BackofficeDatabase,
+  researchCompany?: ReturnType<typeof createLeadResearch>["request"],
+): Hono {
   const router = new Hono();
 
   router.get("/leads", async (context) => {
@@ -22,18 +25,16 @@ export function createLeadsRouter(db: BackofficeDatabase, researcher?: LeadResea
     const leadId = context.req.param("leadId");
     const lead = await findLeadById(db, leadId);
     if (!lead) return context.json({ error: "Lead not found." }, 404);
-    if (!researcher) {
+    if (!researchCompany) {
       return context.json({ error: "Company lookups are not enabled on this server." }, 503);
     }
-    const missing = researcher.missingConfig;
-    if (missing.length > 0) {
-      return context.json({ error: `Set ${missing.join(", ")} to look companies up.` }, 503);
-    }
-    if (lead.companyResearchStatus === "running") {
+    const result = await researchCompany(leadId);
+    if (result.status === "unavailable") return context.json({ error: result.reason }, 503);
+    if (result.status === "not_found") return context.json({ error: "Lead not found." }, 404);
+    if (result.status === "running") {
       return context.json({ error: "The company is already being looked up." }, 409);
     }
 
-    await researcher.retry(leadId);
     return context.json({ lead: await findLeadById(db, leadId) }, 202);
   });
 

@@ -13,7 +13,7 @@ export function LeadsPage() {
         icon={Contact}
         eyebrow="Pipeline"
         title="Leads"
-        description="Workshop attendees and their companies, researched by the Pappers agent."
+        description="Workshop attendees and their companies, with company profiles from Pappers."
       />
       <LeadsCard leads={leads} isLoading={isLoading} error={error} />
     </PageLayout>

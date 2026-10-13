@@ -261,6 +261,21 @@ const createLeads: Migration = {
   },
 };
 
+const addLeadResearchClaim: Migration = {
+  async up(db) {
+    await db.schema.alterTable("leads").addColumn("company_research_run_id", "text").execute();
+    await db.schema
+      .createIndex("leads_research_status_index")
+      .on("leads")
+      .column("company_research_status")
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropIndex("leads_research_status_index").execute();
+    await db.schema.alterTable("leads").dropColumn("company_research_run_id").execute();
+  },
+};
+
 /** Ordered migration set. Names sort lexicographically, so keep the numeric prefix. */
 export const MIGRATIONS: Record<string, Migration> = {
   "0001_create_workshops": createWorkshops,
@@ -270,6 +285,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   "0005_create_agents": createAgents,
   "0006_drop_agents": dropAgents,
   "0007_create_leads": createLeads,
+  "0008_add_lead_research_claim": addLeadResearchClaim,
 };
 
 export const migrationProvider: MigrationProvider = {

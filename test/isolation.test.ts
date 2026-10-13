@@ -51,9 +51,6 @@ describe("public app does not expose the backoffice", () => {
     "/leads",
     "/api/leads",
     "/api/leads/anything",
-    "/agents",
-    "/api/agents",
-    "/api/gateway",
     "/index.html",
     "/assets/index.js",
   ];

@@ -1,3 +1,5 @@
+import type { Generated } from "kysely";
+
 /**
  * The `workshops` table.
  *
@@ -56,6 +58,8 @@ export interface LeadTable {
   position: string | null;
   /** One of `COMPANY_RESEARCH_STATUSES`. */
   company_research_status: string;
+  /** Identifies the current claim; changing company invalidates it. */
+  company_research_run_id: Generated<string | null>;
   company_research_error: string | null;
   company_researched_at: string | null;
   /** `CompanyProfile` as JSON, once the Pappers agent found the company. */
